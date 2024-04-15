@@ -77,7 +77,7 @@ class GMFileWatcher {
           hour12: false,
         }).format(new Date()).replaceAll(',', '');
         console.log(
-          `⌚ ${timestamp} "${pkgName}" lines of code:`, 
+          `⌚ ${timestamp} [${extension}] "${pkgName}" lines of code:`, 
           { 'new': loc.after - loc.before, all: loc.after }
         );
       })
@@ -87,6 +87,7 @@ class GMFileWatcher {
     syncFiles('shaders', 'fsh')
     syncFiles('shaders', 'vsh')
   }
+  
 
   parseModule(name, version) {
     const gmModule = new GMModule(
