@@ -23,7 +23,7 @@ class GMModule {
 
 class GMFileWatcher {
   constructor(gmPackage, modulesDir) {
-    this.gmPath = path.join(process.cwd(), path.join(path.normalize(gmPackage.main), 'scripts'));
+    this.gmPath = path.join(process.cwd(), path.normalize(gmPackage.main));
     this.modulesDirName = modulesDir;
     this.modulesDirPath = path.join(process.cwd(), path.normalize(modulesDir));
     this.modules = Object.entries(gmPackage.dependencies)
@@ -36,49 +36,56 @@ class GMFileWatcher {
       .split('/')
       .filter(item => item !== '')[0];
     const source = path.normalize(path.join(this.modulesDirPath, pkgName));
-    childProcess.exec('find ' + source + " -name '*.gml'", (err, stdout, stderr) => {
-      const loc = stdout.split('\n')
-        .filter(f => f !== '')
-        .map(f => {
-          return {
-            name: path.normalize(f).replaceAll('\\', '/').split('/').pop().replaceAll('.gml', ''),
-            path: path.normalize(f.replaceAll('./', '')),
-            content: fs.readFileSync(path.normalize(f)).toString(),
-          }
-        })
-        .map(script => {
-          const gmlPath = path.normalize(path.join(target, `${script.name}/${script.name}.gml`));
-          const gmlContent = fs.readFileSync(gmlPath).toString()
-          if (gmlContent !== script.content) {
-            console.log(`➡️  Save ${script.name}.gml`);
-            fs.writeFileSync(gmlPath, script.content, { encoding: 'utf8', flag: 'w' });
-          }
 
-          return {
-            before: gmlContent.split('\n').length,
-            after: script.content.split('\n').length,
-          }
-        })
-        .reduce((acc, current) => {
-          acc.before += current.before;
-          acc.after += current.after;
-          return acc
-        }, { before: 0, after: 0 });
-
-      const timestamp = new Intl.DateTimeFormat('pl-PL', {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false,
-      }).format(new Date()).replaceAll(',', '');
-      console.log(
-        `⌚ ${timestamp} "${pkgName}" lines of code:`, 
-        { 'new': loc.after - loc.before, all: loc.after }
-      );
-    })
+    const syncFiles = function(gmFolderName, extension) {
+      childProcess.exec(`find ${source} -name *.${extension}`, (err, stdout, stderr) => {
+        const loc = stdout.split('\n')
+          .filter(f => f !== '')
+          .map(f => {
+            return {
+              name: path.normalize(f).replaceAll('\\', '/').split('/').pop().replaceAll(`.${extension}`, ''),
+              path: path.normalize(f.replaceAll('./', '')),
+              content: fs.readFileSync(path.normalize(f)).toString(),
+            }
+          })
+          .map(script => {
+            const gmlPath = path.normalize(path.join(path.join(target, gmFolderName), `${script.name}/${script.name}.${extension}`));
+            const gmlContent = fs.readFileSync(gmlPath).toString()
+            if (gmlContent !== script.content) {
+              console.log(`➡️  Save ${script.name}.${extension}`);
+              fs.writeFileSync(gmlPath, script.content, { encoding: 'utf8', flag: 'w' });
+            }
+  
+            return {
+              before: gmlContent.split('\n').length,
+              after: script.content.split('\n').length,
+            }
+          })
+          .reduce((acc, current) => {
+            acc.before += current.before;
+            acc.after += current.after;
+            return acc
+          }, { before: 0, after: 0 });
+  
+        const timestamp = new Intl.DateTimeFormat('pl-PL', {
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+          hour12: false,
+        }).format(new Date()).replaceAll(',', '');
+        console.log(
+          `⌚ ${timestamp} "${pkgName}" lines of code:`, 
+          { 'new': loc.after - loc.before, all: loc.after }
+        );
+      })
+    }
+    
+    syncFiles('scripts', 'gml')
+    syncFiles('shaders', 'fsh')
+    syncFiles('shaders', 'vsh')
   }
 
   parseModule(name, version) {
