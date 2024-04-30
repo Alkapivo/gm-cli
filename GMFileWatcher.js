@@ -38,7 +38,7 @@ class GMFileWatcher {
     const source = path.normalize(path.join(this.modulesDirPath, pkgName));
 
     const syncFiles = function(gmFolderName, extension) {
-      childProcess.exec(`find ${source} -name *.${extension}`, (err, stdout, stderr) => {
+      childProcess.exec(`find ${source} -iname "*.${extension}"`, (err, stdout, stderr) => {
         const loc = stdout.split('\n')
           .filter(f => f !== '')
           .map(f => {
