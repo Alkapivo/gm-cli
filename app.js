@@ -1,6 +1,6 @@
 #! /usr/bin/env node
 
-import watch from './GMFileWatcher.js';
+import { watch, sync } from './GMFileWatcher.js';
 import path from 'path';
 import { program } from 'commander';
 
@@ -14,5 +14,10 @@ program.command('watch')
     .description('Watch modules dir and copy code to yyp')
     .action(() => {
       watch(path.normalize(path.join(process.cwd(), 'package-gm.json')))
+    });
+program.command('sync')
+    .description('Copy code to yyp')
+    .action(() => {
+      sync(path.normalize(path.join(process.cwd(), 'package-gm.json')))
     });
 program.parse();
