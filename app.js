@@ -7,19 +7,16 @@ import { spawn, execSync } from 'child_process';
 import fs from 'fs';
 import readline from 'readline';
 
-const rl = readline.createInterface({
-  input: process.stdin,
-  output: process.stdout
-});
-
-const askQuestion = (query) => new Promise(resolve => rl.question(query, resolve));
-
-
-
 program.version('25.03.30', '-v, --version, ', 'output the current version');
 program.command('init')
   .description('CLI creator for package-gm.json')
   .action(async () => {
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout
+    });
+    const askQuestion = (query) => new Promise(resolve => rl.question(query, resolve));
+
     try {
       console.log("This utility will walk you through creating a package-gm.json file.");
       console.log("It only covers the most common items, and tries to guess sensible defaults.");
@@ -64,6 +61,7 @@ program.command('init')
       console.error('An error occurred:', error);
     } finally {
       rl.close();
+      process.exit(0);
     }
   });
 program.command('watch')
@@ -111,6 +109,7 @@ program.command('install')
     });
 
     console.log('All dependencies processed.');
+    process.exit(0);
   })
 program.command('run')
   .description('Run the script named <foo>')
