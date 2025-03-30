@@ -77,7 +77,7 @@ program.command('sync')
     sync(path.normalize(path.join(process.cwd(), 'package-gm.json')))
   });
 program.command('install')
-  .description('Install dependencies in gm_modules from package-gm.json')
+  .description('Install dependencies listed in package-gm.json to gm_modules folder')
   .action(function() {
     const packageJsonPath = 'package-gm.json';
     const modulesDir = 'gm_modules';
@@ -112,12 +112,43 @@ program.command('install')
 
     console.log('All dependencies processed.');
   })
+program.command('run')
+  .description('Run the script named <foo>')
+  .argument('<foo>', 'script name')
+  .action((foo) => {
+    if (typeof foo !== 'string') {
+      console.log(`missing argument`);
+      console.log(`Exited with code 1`);
+      return process.exit(1);
+    }
+
+    const packageJsonPath = 'package-gm.json';
+    const packageData = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+    const scriptData = packageData.scripts[foo]
+    if (typeof scriptData !== 'string') {
+      console.log(`script ${foo} wasn't found`);
+      console.log(`Exited with code 1`);
+      return process.exit(1);
+    }
+
+    const shellScript = `#!/bin/bash
+    ${scriptData}
+    `;
+    const bashProcess = spawn("bash", ["-s"], { stdio: ["pipe", "inherit", "inherit"] });
+    bashProcess.stdin.write(shellScript);
+    bashProcess.stdin.end();
+    bashProcess.on("exit", (code) => {
+      console.log(`Exited with code ${code}`);
+      process.exit(code);
+    });
+  });
 program.command('make')
   .description('Build and run gamemaker project')
   .option('-r, --runtime <type>', 'use VM or YYC runtime', 'VM')
   .option('-t, --target <target>', 'available targets: windows', 'windows')
   .option('-o, --out <path>', 'path to output folder')
   .option('-c, --clean', 'make clean build')
+  .option('-l, --launch', 'launch the executable after building')
   .action(function() {
     const options = this.opts();
     const config = {
@@ -126,6 +157,7 @@ program.command('make')
       out: '$project_path/out',
       targetExt: 'win',
       clean: 'false',
+      launch: 'PackageZip',
     };
 
     if (options.runtime !== undefined) {
@@ -143,6 +175,10 @@ program.command('make')
 
     if (options.clean !== undefined) {
       config.clean = 'true';
+    }
+
+    if (options.launch !== undefined) {
+      config.launch = 'Run';
     }
 
     const shellScript = `#!/bin/bash
@@ -172,59 +208,59 @@ program.command('make')
 
       igor_path=$GMS_IGOR_PATH
       if [ -z "$igor_path" ]; then
-        log_error "GMS_IGOR_PATH must be defined! exit 0"
-        exit 0
+        log_error "GMS_IGOR_PATH must be defined! exit 1"
+        exit 1
       fi
 
       project_name=$GMS_PROJECT_NAME
       if [ -z "$project_name" ]; then
-        log_error "GMS_PROJECT_NAME must be defined! exit 0"
-        exit 0
+        log_error "GMS_PROJECT_NAME must be defined! exit 1"
+        exit 1
       fi
       
       project_path=$GMS_PROJECT_PATH
       if [ -z "$project_path" ]; then
-        log_error "GMS_PROJECT_PATH must be defined! exit 0"
-        exit 0
+        log_error "GMS_PROJECT_PATH must be defined! exit 1"
+        exit 1
       fi
       project_path=$(realpath $project_path)
 
       user_path=$GMS_USER_PATH
       if [ -z "$user_path" ]; then
-        log_error "GMS_USER_PATH must be defined! exit 0"
-        exit 0
+        log_error "GMS_USER_PATH must be defined! exit 1"
+        exit 1
       fi
       user_path=$(realpath $user_path)
 
       runtime_path=$GMS_RUNTIME_PATH
       if [ -z "$runtime_path" ]; then
-        log_error "GMS_RUNTIME_PATH must be defined! exit 0"
-        exit 0
+        log_error "GMS_RUNTIME_PATH must be defined! exit 1"
+        exit 1
       fi
       runtime_path=$(realpath $runtime_path)
 
       runtime=${config.runtime}
       if [ -z "$runtime" ]; then
-        log_error "GMS_RUNTIME must be defined! exit 0"
-        exit 0
+        log_error "GMS_RUNTIME must be defined! exit 1"
+        exit 1
       fi
 
       target=${config.target}
       if [ -z "$target" ]; then
-        log_error "GMS_TARGET must be defined! exit 0"
-        exit 0
+        log_error "GMS_TARGET must be defined! exit 1"
+        exit 1
       fi
 
       target_ext=${config.targetExt}
       if [ -z "$target_ext" ]; then
-        log_error "GMS_TARGET_EXT must be defined! exit 0"
-        exit 0
+        log_error "GMS_TARGET_EXT must be defined! exit 1"
+        exit 1
       fi
 
       out_path=${config.out}
       if [ -z "$out_path" ]; then
-        log_error "Invalid output path (out_path: $out_path)! exit 0"
-        exit 0
+        log_error "Invalid output path (out_path: $out_path)! exit 1"
+        exit 1
       fi
 
       clean=${config.clean}
@@ -243,7 +279,7 @@ program.command('make')
       log_info "Clean '$out_path'"
       rm -rf $out_path
 
-      log_info "Execute shell command:\n$igor_path \\ \n  project="$project_path/$\{project_name\}.yyp" \\ \n  user="$user_path" \\ \n  runtimePath="$runtime_path" \\ \n  runtime=$runtime \\ \n  cache="$project_path/tmp/igor/cache" \\ \n  temp="$project_path/tmp/igor/temp" \\ \n  of="$out_path/$\{project_name\}.win" \\ \n  tf="$out_path/$\{project_name\}.zip" \\ \n  -- $target Run\n"
+      log_info "Execute shell command:\n$igor_path \\ \n  project="$project_path/$\{project_name\}.yyp" \\ \n  user="$user_path" \\ \n  runtimePath="$runtime_path" \\ \n  runtime=$runtime \\ \n  cache="$project_path/tmp/igor/cache" \\ \n  temp="$project_path/tmp/igor/temp" \\ \n  of="$out_path/$\{project_name\}.win" \\ \n  tf="$out_path/$\{project_name\}.zip" \\ \n  -- $target ${config.launch} \n"
       $igor_path \
         --project="$project_path/$\{project_name\}.yyp" \
         --user="$user_path" \
@@ -253,11 +289,17 @@ program.command('make')
         --temp="$project_path/tmp/igor/temp" \
         --of="$out_path/$\{project_name\}.win" \
         --tf="$out_path/$\{project_name\}.zip" \
-        -- $target Run
+        -- $target ${config.launch}
+      
+      exit 0
     `;
 
     const bashProcess = spawn("bash", ["-s"], { stdio: ["pipe", "inherit", "inherit"] });
     bashProcess.stdin.write(shellScript);
     bashProcess.stdin.end();
+    bashProcess.on("exit", (code) => {
+      console.log(`Exited with code ${code}`);
+      process.exit(code);
+    });
   });
 program.parse();
