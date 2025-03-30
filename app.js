@@ -5,20 +5,74 @@ import path from 'path';
 import { program } from 'commander';
 import { spawn, execSync } from 'child_process';
 import fs from 'fs';
+import readline from 'readline';
 
-program.version('25.02.20', '-v, --version, ', 'output the current version');
+const rl = readline.createInterface({
+  input: process.stdin,
+  output: process.stdout
+});
+
+const askQuestion = (query) => new Promise(resolve => rl.question(query, resolve));
+
+
+
+program.version('25.03.30', '-v, --version, ', 'output the current version');
 program.command('init')
   .description('CLI creator for package-gm.json')
-  .action(() => {
-    console.log('TODO: CLI creator for package-gm.json')
+  .action(async () => {
+    try {
+      console.log("This utility will walk you through creating a package-gm.json file.");
+      console.log("It only covers the most common items, and tries to guess sensible defaults.");
+
+      const projectPath = process.cwd();
+      const basename = path.basename(projectPath);
+      const version = "1.0.0";
+      const propertyPackage = await askQuestion(`package name: (${basename}) `);
+      const propertyVersion = await askQuestion(`version: (${version}) `);
+      const propertyDescription = await askQuestion('description: ');
+      const propertyGamemaker = await askQuestion('gamemaker project path: ');
+      const propertyTest = await askQuestion('test command: ');
+      const propertyGit = await askQuestion('git repository: ');
+      const propertyKeywords = await askQuestion('keywords: ');
+      const propertyAuthor = await askQuestion('author: ');
+      const propertyLicense = await askQuestion('license: (ISC) ');
+      const data = {
+        package: propertyPackage === null || propertyPackage === '' ? basename : propertyPackage,
+        version: propertyVersion === null || propertyVersion === '' ? version : propertyVersion,
+        description: propertyDescription,
+        main: propertyGamemaker,
+        test: propertyTest,
+        git: propertyGit,
+        keywords: propertyKeywords,
+        author: propertyAuthor,
+        license: propertyLicense,
+        scripts: {},
+        dependencies: {},
+      };
+      
+      const filePath = path.join(projectPath, 'package-gm.json');
+      const dataString = JSON.stringify(data, null, 2);
+
+      console.log(`About to write to ${filePath}:\n\n${dataString}\n\n`);
+      const response = await askQuestion(`Is this OK? (yes) `)
+      if (typeof response === 'string' && (response.includes('y') || response.includes('Y'))) {
+        fs.writeFileSync(filePath, dataString, 'utf8');
+      } else {
+        console.log('Aborted.\n');
+      }
+    } catch (error) {
+      console.error('An error occurred:', error);
+    } finally {
+      rl.close();
+    }
   });
 program.command('watch')
-  .description('Watch modules dir and copy code to yyp')
+  .description('Watch modules dir and copy code to gamemaker project')
   .action(() => {
     watch(path.normalize(path.join(process.cwd(), 'package-gm.json')))
   });
 program.command('sync')
-  .description('Copy code to yyp')
+  .description('Copy code from modules dir to gamemaker project')
   .action(() => {
     sync(path.normalize(path.join(process.cwd(), 'package-gm.json')))
   });
@@ -58,12 +112,12 @@ program.command('install')
 
     console.log('All dependencies processed.');
   })
-program.command('run')
-  .description('Build and run yyp')
+program.command('make')
+  .description('Build and run gamemaker project')
   .option('-r, --runtime <type>', 'use VM or YYC runtime', 'VM')
   .option('-t, --target <target>', 'available targets: windows', 'windows')
   .option('-o, --out <path>', 'path to output folder')
-  .option('-c, --clean', 'run clean build')
+  .option('-c, --clean', 'make clean build')
   .action(function() {
     const options = this.opts();
     const config = {
