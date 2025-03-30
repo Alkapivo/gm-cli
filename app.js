@@ -267,27 +267,30 @@ program.command('make')
         log_info "Clean '$project_path/tmp/igor'"
         rm -rf $project_path/tmp/igor
         
-        log_info "Execute shell command:\n$igor_path \\ \n  --runtimePath="$runtime_path" \\ \n  --runtime=$runtime \\ \n  --project="$project_path/$\{project_name\}.yyp" \\ \n  -- $target Clean\n"
+        log_info "Execute shell command:\n$igor_path \\ \n  --runtimePath="$runtime_path" \\ \n  --runtime=$runtime \\ \n  --project="$\{project_path\}/$\{project_name\}.yyp" \\ \n  -- $target Clean\n"
         $igor_path \
           --runtimePath="$runtime_path" \
           --runtime=$runtime \
-          --project="$project_path/$\{project_name\}.yyp" \
+          --project="$\{project_path\}/$\{project_name\}.yyp" \
           -- $target Clean
       fi
 
       log_info "Clean '$out_path'"
       rm -rf $out_path
 
-      log_info "Execute shell command:\n$igor_path \\ \n  project="$project_path/$\{project_name\}.yyp" \\ \n  user="$user_path" \\ \n  runtimePath="$runtime_path" \\ \n  runtime=$runtime \\ \n  cache="$project_path/tmp/igor/cache" \\ \n  temp="$project_path/tmp/igor/temp" \\ \n  of="$out_path/$\{project_name\}.win" \\ \n  tf="$out_path/$\{project_name\}.zip" \\ \n  -- $target ${config.launch} \n"
+      log_info "Clean '$\{project_path\}/tmp/igor/out'"
+      rm -rf $\{project_path\}/tmp/igor/out
+
+      log_info "Execute shell command:\n$igor_path \\ \n --project="$\{project_path\}/$\{project_name\}.yyp" \\ \n --user="$user_path" \\ \n --runtimePath="$runtime_path" \\ \n --runtime=$runtime \\ \n --cache="$\{project_path\}/tmp/igor/cache" \\ \n --temp="$\{project_path\}/tmp/igor/temp" \\ \n --of="$\{project_path\}/tmp/igor/out/$\{project_name\}.win" \\ \n --tf="$\{out_path\}/$\{project_name\}.zip" \\ \n -- $target ${config.launch}"
       $igor_path \
-        --project="$project_path/$\{project_name\}.yyp" \
+        --project="$\{project_path\}/$\{project_name\}.yyp" \
         --user="$user_path" \
         --runtimePath="$runtime_path" \
         --runtime=$runtime \
-        --cache="$project_path/tmp/igor/cache" \
-        --temp="$project_path/tmp/igor/temp" \
-        --of="$out_path/$\{project_name\}.win" \
-        --tf="$out_path/$\{project_name\}.zip" \
+        --cache="$\{project_path\}/tmp/igor/cache" \
+        --temp="$\{project_path\}/tmp/igor/temp" \
+        --of="$\{project_path\}/tmp/igor/out/$\{project_name\}.win" \
+        --tf="$\{out_path\}/$\{project_name\}.zip" \
         -- $target ${config.launch}
       
       exit 0
