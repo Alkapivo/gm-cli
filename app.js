@@ -7,7 +7,7 @@ import { spawn, execSync } from 'child_process';
 import fs from 'fs';
 import readline from 'readline';
 
-program.version('25.03.30', '-v, --version, ', 'output the current version');
+program.version('25.11.03', '-v, --version, ', 'output the current version');
 program.command('init')
   .description('CLI creator for package-gm.json')
   .action(async () => {
