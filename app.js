@@ -7,6 +7,7 @@ import { spawn, execSync } from 'child_process';
 import fs from 'fs';
 import readline from 'readline';
 
+
 program.version('25.11.07', '-v, --version, ', 'output the current version');
 program.command('init')
   .description('CLI creator for package-gm.json')
@@ -141,10 +142,97 @@ program.command('run')
       process.exit(code);
     });
   });
+program.command('generate')
+  .description('Generate *.yyp IncludedFiles section')
+  .action(function() {
+    function getFilesRecursively(dir, root) {
+      let files = [];
+      for (const entry of fs.readdirSync(dir)) {
+        const fullPath = path.join(dir, entry).replaceAll("\\", "/");
+        if (fs.statSync(fullPath).isDirectory()) {
+          files = files.concat(getFilesRecursively(fullPath, root));
+        } else {
+          const filePath = `datafiles${(fullPath.startsWith(root) ? fullPath.slice(root.length) : fullPath)}`.replaceAll(`/${entry}`, '');
+          const line = `{"$GMIncludedFile":"","%Name":"${entry}","CopyToMask":-1,"filePath":"${filePath}","name":"${entry}","resourceType":"GMIncludedFile","resourceVersion":"2.0",},`;
+          files.push(line);
+        }
+      }
+      return files;
+    }
+
+    function findFileUpwardsSync(filename = "gm-cli.env", maxLevels = 99) {
+      let currentDir = process.cwd();
+      for (let i = 0; i < maxLevels; i++) {
+        const candidate = path.join(currentDir, filename);
+        if (fs.existsSync(candidate)) {
+          return candidate;
+        }
+
+        const parentDir = path.dirname(currentDir);
+        if (parentDir === currentDir) {
+          break;
+        }
+
+        currentDir = parentDir;
+      }
+
+      return null;
+    }
+
+    function parseEnvFile(filePath) {
+      const content = fs.readFileSync(filePath, "utf8");
+      const result = new Map();
+      content.split(/\r?\n/).forEach(line => {
+        line = line.trim();
+        if (!line || line.startsWith("#")) {
+          return;
+        }
+
+        const match = line.match(/^([^=]+)="(.*)"$/);
+        if (match) {
+          const [, key, value] = match;
+          result.set(key.trim(), value);
+        }
+      });
+
+      return result;
+    }
+
+    const envFile = findFileUpwardsSync();
+    if (envFile === null) {
+      console.error('gm-cli.env was not found')
+      return
+    }
+
+    const envPath = path.dirname(envFile).replaceAll("\\", "/");
+    const envMap = parseEnvFile(envFile);
+    if (!envMap.has("GMS_PROJECT_PATH")) {
+      console.error(`GMS_PROJECT_PATH was not defined in ${envFile}`)
+      return
+    }
+
+    if (!envMap.has("GMS_PROJECT_NAME")) {
+      console.error(`GMS_PROJECT_NAME was not defined in ${envFile}`)
+      return
+    }
+
+    const projectPath = path.join(envPath, envMap.get("GMS_PROJECT_PATH")).replaceAll("\\", "/");
+    const yypPath = path.join(projectPath, `${envMap.get("GMS_PROJECT_NAME")}.yyp`).replaceAll("\\", "/");
+    const yypOldPath = path.join(projectPath, `${envMap.get("GMS_PROJECT_NAME")}.yyp.old`).replaceAll("\\", "/");
+    const yyp = fs.readFileSync(yypPath, "utf8");
+    fs.copyFileSync(yypPath, yypOldPath);
+
+    const datafilesPath = path.join(projectPath, "datafiles").replaceAll("\\", "/")
+    const datafiles = getFilesRecursively(datafilesPath, datafilesPath)
+    const replaced = yyp.replace(/"IncludedFiles"\s*:\s*\[(.*?)\]/s, `"IncludedFiles":[
+    ${datafiles.join("\n    ")}
+  ]`);
+    fs.writeFileSync(yypPath, replaced, "utf8");
+  });
 program.command('make')
   .description('Build and run gamemaker project')
-  .option('-t, --target <target>', 'available targets: windows', 'windows')
-  .option('-r, --runtime <type>', 'use VM or YYC runtime', 'VM')
+  .option('-t, --target <target>', 'available targets: windows')
+  .option('-r, --runtime <type>', 'use VM or YYC runtime')
   .option('-n, --name <name>', 'The actual file name of the ZIP file that is created')
   .option('-l, --launch', 'launch the executable after building')
   .option('-c, --clean', 'make clean build')
@@ -223,6 +311,8 @@ program.command('make')
         log_error "GMS_PROJECT_PATH must be defined! exit 1"
         exit 1
       fi
+      
+      project_path=$(dirname "$gm_cli_env_path")/$project_path
       project_path=$(realpath $project_path)
 
       user_path=$GMS_USER_PATH
@@ -290,8 +380,8 @@ program.command('make')
         --temp="$\{project_path\}/tmp/igor/temp" \
         --of="$\{project_path\}/tmp/igor/out/$\{project_name\}.win" \
         --tf="$\{zip_name\}.zip" \
-        -- $target ${config.launch}
-      
+        -- $target ${config.launch};
+
       exit 0
     `;
 
