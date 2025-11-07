@@ -7,7 +7,7 @@ import { spawn, execSync } from 'child_process';
 import fs from 'fs';
 import readline from 'readline';
 
-program.version('25.11.03', '-v, --version, ', 'output the current version');
+program.version('25.11.07', '-v, --version, ', 'output the current version');
 program.command('init')
   .description('CLI creator for package-gm.json')
   .action(async () => {
@@ -143,33 +143,30 @@ program.command('run')
   });
 program.command('make')
   .description('Build and run gamemaker project')
-  .option('-r, --runtime <type>', 'use VM or YYC runtime', 'VM')
   .option('-t, --target <target>', 'available targets: windows', 'windows')
-  .option('-o, --out <path>', 'path to output folder')
-  .option('-c, --clean', 'make clean build')
+  .option('-r, --runtime <type>', 'use VM or YYC runtime', 'VM')
+  .option('-n, --name <name>', 'The actual file name of the ZIP file that is created')
   .option('-l, --launch', 'launch the executable after building')
+  .option('-c, --clean', 'make clean build')
   .action(function() {
+    const targetMap = new Map([ [ 'windows', 'win' ] ])
     const options = this.opts();
     const config = {
       runtime: '$GMS_RUNTIME',
       target: '$GMS_TARGET',
-      out: '$project_path/out',
       targetExt: 'win',
       clean: 'false',
       launch: 'PackageZip',
+      name: '$GMS_PROJECT_NAME',
     };
 
     if (options.runtime !== undefined) {
       config.runtime = options.runtime;
     }
 
-    if (options.target !== undefined) {
+    if (options.target !== undefined && targetMap.has(options.target)) {
       config.target = options.target;
-      config.targetExt = 'win';
-    }
-
-    if (options.out !== undefined) {
-      config.out = options.out;
+      config.targetExt = targetMap.get(config.target);
     }
 
     if (options.clean !== undefined) {
@@ -178,6 +175,10 @@ program.command('make')
 
     if (options.launch !== undefined) {
       config.launch = 'Run';
+    }
+
+    if (options.name !== undefined && typeof options.name === 'string' && options.name.trim() !== '') {
+      config.name = options.name;
     }
 
     const shellScript = `#!/bin/bash
@@ -256,9 +257,10 @@ program.command('make')
         exit 1
       fi
 
-      out_path=${config.out}
-      if [ -z "$out_path" ]; then
-        log_error "Invalid output path (out_path: $out_path)! exit 1"
+      zip_name=${config.name}
+      echo $zip_name
+      if [ -z "$zip_name" ]; then
+        log_error "--name must be defined! exit 1"
         exit 1
       fi
 
@@ -275,13 +277,10 @@ program.command('make')
           -- $target Clean
       fi
 
-      log_info "Clean '$out_path'"
-      rm -rf $out_path
-
       log_info "Clean '$\{project_path\}/tmp/igor/out'"
       rm -rf $\{project_path\}/tmp/igor/out
 
-      log_info "Execute shell command:\n$igor_path \\ \n --project="$\{project_path\}/$\{project_name\}.yyp" \\ \n --user="$user_path" \\ \n --runtimePath="$runtime_path" \\ \n --runtime=$runtime \\ \n --cache="$\{project_path\}/tmp/igor/cache" \\ \n --temp="$\{project_path\}/tmp/igor/temp" \\ \n --of="$\{project_path\}/tmp/igor/out/$\{project_name\}.win" \\ \n --tf="$\{out_path\}/$\{project_name\}.zip" \\ \n -- $target ${config.launch}"
+      log_info "Execute shell command:\n$igor_path \\ \n --project="$\{project_path\}/$\{project_name\}.yyp" \\ \n --user="$user_path" \\ \n --runtimePath="$runtime_path" \\ \n --runtime=$runtime \\ \n --cache="$\{project_path\}/tmp/igor/cache" \\ \n --temp="$\{project_path\}/tmp/igor/temp" \\ \n --of="$\{project_path\}/tmp/igor/out/$\{project_name\}.win" \\ \n --tf="$\{zip_name\}.zip" \\ \n -- $target ${config.launch}"
       $igor_path \
         --project="$\{project_path\}/$\{project_name\}.yyp" \
         --user="$user_path" \
@@ -290,7 +289,7 @@ program.command('make')
         --cache="$\{project_path\}/tmp/igor/cache" \
         --temp="$\{project_path\}/tmp/igor/temp" \
         --of="$\{project_path\}/tmp/igor/out/$\{project_name\}.win" \
-        --tf="$\{out_path\}/$\{project_name\}.zip" \
+        --tf="$\{zip_name\}.zip" \
         -- $target ${config.launch}
       
       exit 0
