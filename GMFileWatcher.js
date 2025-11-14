@@ -13,6 +13,7 @@ class GMModule {
     this.version = version;
 
     this.scriptWatcher  = this.createWatcher("src", hook);
+    this.testWatcher  = this.createWatcher("test", hook);
     this.shaderWatcher  = this.createWatcher("resource/shader", hook);
 
     this.objectWatchers = this.findTopFolders(path.join(dir, "resource/object"))
@@ -105,9 +106,11 @@ class GMFileWatcher {
    * --------------------------------------------- */
   syncModuleFiles(name, moduleDir, objectWatchers = [], sceneWatchers = []) {
     const src      = path.join(moduleDir, 'src');
+    const test     = path.join(moduleDir, 'test');
     const shader   = path.join(moduleDir, 'resource/shader');
 
     this.syncFiles(src,     this.gmPath, `${name}/src`,               'scripts', 'gml');
+    this.syncFiles(test,    this.gmPath, `${name}/test`,              'scripts', 'gml');
     this.syncFiles(shader,  this.gmPath, `${name}/resource/shader`,   'shaders', 'fsh');
     this.syncFiles(shader,  this.gmPath, `${name}/resource/shader`,   'shaders', 'vsh');
 
@@ -158,6 +161,7 @@ class GMFileWatcher {
       path.normalize(p).includes(path.normalize(module.dir));
 
     gmModule.scriptWatcher.on('change', p => this.modules.filter(m => moduleFilter(p, m)).forEach(() => this.hook(p)));
+    gmModule.testWatcher.on('change', p => this.modules.filter(m => moduleFilter(p, m)).forEach(() => this.hook(p)));
     gmModule.shaderWatcher.on('change', p => this.modules.filter(m => moduleFilter(p, m)).forEach(() => this.hook(p)));
 
     gmModule.objectWatchers.forEach(entry => {

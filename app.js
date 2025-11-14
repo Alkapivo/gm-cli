@@ -8,7 +8,7 @@ import fs from 'fs';
 import readline from 'readline';
 
 
-program.version('25.11.07', '-v, --version, ', 'output the current version');
+program.version('25.11.14', '-v, --version, ', 'output the current version');
 program.command('init')
   .description('CLI creator for package-gm.json')
   .action(async () => {
