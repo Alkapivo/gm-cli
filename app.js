@@ -8,7 +8,7 @@ import fs from 'fs';
 import readline from 'readline';
 
 
-program.version('25.11.14', '-v, --version, ', 'output the current version');
+program.version('25.11.21', '-v, --version, ', 'output the current version');
 program.command('init')
   .description('CLI creator for package-gm.json')
   .action(async () => {
@@ -93,7 +93,8 @@ program.command('install')
         try {
           execSync('git rev-parse --is-inside-work-tree', { cwd: modulePath, stdio: 'ignore' });
           console.log(`Syncing ${modulePath} to revision ${dependency.revision}`);
-          execSync('git clean -fdx', { cwd: modulePath, stdio: 'inherit' });
+          execSync('git reset --hard HEAD', { cwd: modulePath, stdio: 'inherit' });
+          execSync('git clean -fdx -e', { cwd: modulePath, stdio: 'inherit' });
           execSync(`git checkout ${dependency.revision}`, { cwd: modulePath, stdio: 'inherit' });
         } catch (error) {
           console.log(`Removing ${modulePath} because it's not a git repository`);
