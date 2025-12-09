@@ -111,6 +111,7 @@ class GMFileWatcher {
 
     this.syncFiles(src,     this.gmPath, `${name}/src`,               'scripts', 'gml');
     this.syncFiles(test,    this.gmPath, `${name}/test`,              'scripts', 'gml');
+    this.syncFiles(shader,  this.gmPath, `${name}/resource/shader`,   'scripts', 'gml');
     this.syncFiles(shader,  this.gmPath, `${name}/resource/shader`,   'shaders', 'fsh');
     this.syncFiles(shader,  this.gmPath, `${name}/resource/shader`,   'shaders', 'vsh');
 
