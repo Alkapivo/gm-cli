@@ -69,6 +69,15 @@ function defaultWatcherHook() {
   };
 }
 
+function syncWatcherHook() {
+  return {
+    ignored: /[\/\\]\./,
+    persistent: false,
+    ignoreInitial: true,
+    depth: 99,
+  };
+}
+
 /* ---------------------------------------------------------
  * GMFileWatcher
  * --------------------------------------------------------- */
@@ -88,16 +97,16 @@ class GMFileWatcher {
 
   initializeWatchedModules(dependencies) {
     return dependencies.map(([name, version]) => {
-      const gmModule = this.parseModule(name, version);
+      const gmModule = this.parseModule(name, version, true);
       this.syncModuleFiles(name, gmModule.dir, gmModule.objectWatchers, gmModule.sceneWatchers);
       return gmModule;
     });
   }
 
   initializeSyncModules(dependencies) {
-    dependencies.forEach(([name]) => {
-      const modulePath = path.join(this.modulesDirPath, name);
-      this.syncModuleFiles(name, modulePath);
+    dependencies.forEach(([name, version]) => {
+      const gmModule = this.parseModule(name, version, false);
+      this.syncModuleFiles(name, gmModule.dir, gmModule.objectWatchers, gmModule.sceneWatchers);
     });
     return [];
   }
@@ -171,8 +180,10 @@ class GMFileWatcher {
   /* ---------------------------------------------
    * Watcher handlers
    * --------------------------------------------- */
-  parseModule(name, version) {
-    const gmModule = new GMModule(resolvePath(path.join(this.modulesDirName, name)), version);
+  parseModule(name, version, watch = true) {
+    const gmModule = new GMModule(resolvePath(path.join(this.modulesDirName, name)), version, watch
+      ? defaultWatcherHook()
+      : syncWatcherHook());
 
     const moduleFilter = (p, module) =>
       path.normalize(p).includes(path.normalize(module.dir));
