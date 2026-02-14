@@ -1,5 +1,8 @@
 {
   "name": "@ovipakla/gm-cli",
+  "publishConfig": {
+    "access": "public"
+  },
   "version": "1.0.0",
   "description": "Gamemaker CLI toolkit. Watch &amp; sync gml sources with yyp project.",
   "main": "app.js",
