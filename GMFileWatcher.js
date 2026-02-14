@@ -270,7 +270,10 @@ class GMFileWatcher {
       : path.join(target, gmFolderName, `${script.name}/${script.name}.${extension}`);
 
     if (!fs.existsSync(dst)) {
-      const dstYY = path.join(target, gmFolderName, `${script.name}/${script.name}.yy`);
+      const objName = isObject ? gmFolderName.split("/").slice(-1).pop() : undefined
+      const dstYY = isObject
+        ? path.join(target, `${objName}.yy`)
+        : path.join(target, gmFolderName, `${script.name}/${script.name}.yy`);
       if (!fs.existsSync(dstYY)) {
         console.log(`⚠️  File ${dstYY} does not exists, cannot sync.`)
         return {
