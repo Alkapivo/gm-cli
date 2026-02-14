@@ -28,7 +28,7 @@ class GMModule {
         watcher: chokidar.watch(entry.dir, hook)
       }));
 
-    console.log(`♻️  Watching [${dir}] for changes...`);
+    console.log(`🔍️ Watching [${dir}] for changes...`);
   }
 
   createWatcher(subdir, hook) {
@@ -299,7 +299,7 @@ class GMFileWatcher {
     const existing = fs.readFileSync(dst, 'utf8');
     if (existing !== script.content) {
       const result = removeZeroFields(diffStats(existing.split('\n'), script.content.split('\n')))
-      console.log(`➡️  Save ${script.name}.${extension}:`, result);
+      console.log(`📝 Save ${script.name}.${extension}:`, result);
       fs.writeFileSync(dst, script.content, { encoding: 'utf8', flag: 'w' });
     }
 

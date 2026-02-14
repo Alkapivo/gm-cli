@@ -77,40 +77,47 @@ program.command('sync')
   });
 program.command('install')
   .description('Install dependencies listed in package-gm.json to gm_modules folder')
+  .option('-c, --clean', 'remove existing gm_modules')
   .action(function() {
+    const options = this.opts();
+    const clean = options.clean !== undefined;
     const packageJsonPath = 'package-gm.json';
     const modulesDir = 'gm_modules';
 
     if (!fs.existsSync(modulesDir)) {
+      fs.mkdirSync(modulesDir);
+    } else if (clean) {
+      fs.rmdirSync(modulesDir, { recursive: true });
       fs.mkdirSync(modulesDir);
     }
 
     const packageData = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
     const dependencies = packageData.dependencies;
     Object.entries(dependencies).forEach(([key, dependency]) => {
+      console.log(`\n📦️ Install ${key}\n===========${"=".repeat(key.length)}`)
       const modulePath = path.join(modulesDir, key);
       if (fs.existsSync(modulePath)) {
         try {
           execSync('git rev-parse --is-inside-work-tree', { cwd: modulePath, stdio: 'ignore' });
-          console.log(`Syncing ${modulePath} to revision ${dependency.revision}`);
+          console.log(`🌐 Syncing ${modulePath} to revision ${dependency.revision}`);
           execSync('git reset --hard HEAD', { cwd: modulePath, stdio: 'inherit' });
           execSync('git clean -fdx -e', { cwd: modulePath, stdio: 'inherit' });
           execSync(`git checkout ${dependency.revision}`, { cwd: modulePath, stdio: 'inherit' });
         } catch (error) {
-          console.log(`Removing ${modulePath} because it's not a git repository`);
+          console.log(`🗑️ Removing ${modulePath} because it's not a git repository`);
           fs.rmSync(modulePath, { recursive: true, force: true });
-          console.log(`Initializing ${modulePath} to revision ${dependency.revision}`);
+          console.log(`🔧 Initializing ${modulePath} to revision ${dependency.revision}`);
           execSync(`git clone ${dependency.remote} ${modulePath}`, { stdio: 'inherit' });
           execSync(`git checkout ${dependency.revision}`, { cwd: modulePath, stdio: 'inherit' });
         }
       } else {
-        console.log(`Initializing ${modulePath} to revision ${dependency.revision}`);
+        console.log(`🔧 Initializing ${modulePath} to revision ${dependency.revision}`);
         execSync(`git clone ${dependency.remote} ${modulePath}`, { stdio: 'inherit' });
         execSync(`git checkout ${dependency.revision}`, { cwd: modulePath, stdio: 'inherit' });
       }
     });
 
-    console.log('All dependencies processed.');
+    console.log('\n\n✅ All dependencies processed.');
     process.exit(0);
   })
 program.command('run')
