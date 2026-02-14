@@ -28,7 +28,7 @@ class GMModule {
         watcher: chokidar.watch(entry.dir, hook)
       }));
 
-    console.log(`♻️  Watching ${dir} for changes...`);
+    console.log(`♻️  Watching [${dir}] for changes...`);
   }
 
   createWatcher(subdir, hook) {
@@ -77,6 +77,7 @@ class GMFileWatcher {
     this.gmPath = resolvePath(gmPackage.main);
     this.modulesDirName = modulesDir;
     this.modulesDirPath = resolvePath(modulesDir);
+    this.timestamp = "";
 
     const dependencyEntries = Object.entries(gmPackage.dependencies);
 
@@ -148,6 +149,21 @@ class GMFileWatcher {
         .map(script => this.writeIfChanged(script, extension, target, gmFolderName, isObject))
         .reduce(sumLineChanges, { before: 0, after: 0 });
 
+      const timestamp = new Intl.DateTimeFormat('pl-PL', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+      }).format(new Date()).replaceAll(',', '');
+
+      if (timestamp !== this.timestamp) {
+        this.timestamp = timestamp
+        console.log(`⌚ ${timestamp}`)
+      }
+      
       logSyncSummary(pkgName, suffix, extension, loc);
     });
   }
@@ -216,14 +232,60 @@ class GMFileWatcher {
   }
 
   writeIfChanged(script, extension, target, gmFolderName, isObject) {
+    const diffStats = (oldLines, newLines) => {
+      const m = oldLines.length;
+      const n = newLines.length;
+
+      // tablica LCS
+      const dp = Array.from({ length: m + 1 }, () =>
+        Array(n + 1).fill(0)
+      );
+
+      for (let i = 1; i <= m; i++) {
+        for (let j = 1; j <= n; j++) {
+          if (oldLines[i - 1] === newLines[j - 1]) {
+            dp[i][j] = dp[i - 1][j - 1] + 1;
+          } else {
+            dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+          }
+        }
+      }
+
+      const same = dp[m][n];
+      const removed = m - same;
+      const added = n - same;
+      const total = same + added
+
+      return { added, removed, total };
+    }
+
+    const removeZeroFields = (obj) => {
+      return Object.fromEntries(
+        Object.entries(obj).filter(([_, value]) => value !== 0)
+      );
+    }
+
     const dst = isObject
       ? path.join(target, `${script.name}.${extension}`)
       : path.join(target, gmFolderName, `${script.name}/${script.name}.${extension}`);
 
-    const existing = fs.readFileSync(dst, 'utf8');
+    if (!fs.existsSync(dst)) {
+      const dstYY = path.join(target, gmFolderName, `${script.name}/${script.name}.yy`);
+      if (!fs.existsSync(dstYY)) {
+        console.log(`⚠️  File ${dstYY} does not exists, cannot sync.`)
+        return {
+          before: 0,
+          after: 0,
+        }
+      }
 
+      fs.writeFileSync(dst, "");
+    }
+
+    const existing = fs.readFileSync(dst, 'utf8');
     if (existing !== script.content) {
-      console.log(`➡️  Save ${script.name}.${extension}`);
+      const result = removeZeroFields(diffStats(existing.split('\n'), script.content.split('\n')))
+      console.log(`➡️  Save ${script.name}.${extension}:`, result);
       fs.writeFileSync(dst, script.content, { encoding: 'utf8', flag: 'w' });
     }
 
@@ -256,20 +318,10 @@ function sumLineChanges(acc, cur) {
 }
 
 function logSyncSummary(pkgName, suffix, extension, loc) {
-  const timestamp = new Intl.DateTimeFormat('pl-PL', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-  }).format(new Date()).replaceAll(',', '');
-
-  console.log(
-    `⌚ ${timestamp} [${pkgName}${suffix}${extension}]`,
-    { new: loc.after - loc.before, sum: loc.after }
-  );
+  const newLines = loc.after - loc.before;
+  if (newLines !== 0) {
+    console.log(`🚀 [${pkgName}${suffix}${extension}]:`, { diff: newLines, total: loc.after } );
+  }
 }
 
 /* ---------------------------------------------------------
