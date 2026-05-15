@@ -8,7 +8,7 @@ import fs from 'fs';
 import readline from 'readline';
 
 
-program.version('26.02.14', '-v, --version, ', 'output the current version');
+program.version('26.05.15', '-v, --version, ', 'output the current version');
 program.command('init')
   .description('CLI creator for package-gm.json')
   .action(async () => {
@@ -283,12 +283,12 @@ program.command('make')
     const shellScript = `#!/bin/bash
       function log_info {
         local timestamp=$(date +"%Y-%m-%d %H:%M:%S")
-        echo -e "$timestamp INFO   [gm-cli::run] $1"
+        echo -e "\\\e[90m$timestamp\\\e[0m \\\e[32mINFO\\\e[0m   \\\e[35m[gm-cli::make]\\\e[0m $1"
       }
 
       function log_error {
         local timestamp=$(date +"%Y-%m-%d %H:%M:%S")
-        echo -e "$timestamp ERROR  [gm-cli::run] $1"
+        echo -e "\\\e[90m$timestamp\\\e[0m \\\e[31mERROR\\\e[0m  \\\e[35m[gm-cli::make]\\\e[0m $1"
       }
       
       gm_cli_env_path=""
@@ -370,18 +370,18 @@ program.command('make')
         log_info "Clean '$project_path/tmp/igor'"
         rm -rf $project_path/tmp/igor
         
-        log_info "Execute shell command:\n$igor_path \\ \n  --runtimePath="$runtime_path" \\ \n  --runtime=$runtime \\ \n  --project="$\{project_path\}/$\{project_name\}.yyp" \\ \n  -- $target Clean\n"
+        log_info "Execute shell command:\n\\\e[33m$igor_path \\ \n  --runtimePath="$runtime_path" \\ \n  --runtime=$runtime \\ \n  --project="$\{project_path\}/$\{project_name\}.yyp" \\ \n  -- $target Clean\n\\\e[0m"
         $igor_path \
           --runtimePath="$runtime_path" \
           --runtime=$runtime \
           --project="$\{project_path\}/$\{project_name\}.yyp" \
-          -- $target Clean
+          -- $target Clean | GREP_COLORS='mt=01;31' grep --color=always -E 'Error : |$'
       fi
 
       log_info "Clean '$\{project_path\}/tmp/igor/out'"
       rm -rf $\{project_path\}/tmp/igor/out
 
-      log_info "Execute shell command:\n$igor_path \\ \n --project="$\{project_path\}/$\{project_name\}.yyp" \\ \n --user="$user_path" \\ \n --runtimePath="$runtime_path" \\ \n --runtime=$runtime \\ \n --cache="$\{project_path\}/tmp/igor/cache" \\ \n --temp="$\{project_path\}/tmp/igor/temp" \\ \n --of="$\{project_path\}/tmp/igor/out/$\{project_name\}.win" \\ \n --tf="$\{zip_name\}.zip" \\ \n -- $target ${config.launch}"
+      log_info "Execute shell command:\n\\\e[33m$igor_path \\ \n --project="$\{project_path\}/$\{project_name\}.yyp" \\ \n --user="$user_path" \\ \n --runtimePath="$runtime_path" \\ \n --runtime=$runtime \\ \n --cache="$\{project_path\}/tmp/igor/cache" \\ \n --temp="$\{project_path\}/tmp/igor/temp" \\ \n --of="$\{project_path\}/tmp/igor/out/$\{project_name\}.win" \\ \n --tf="$\{zip_name\}.zip" \\ \n -- $target ${config.launch}\\\e[0m"
       $igor_path \
         --project="$\{project_path\}/$\{project_name\}.yyp" \
         --user="$user_path" \
@@ -391,7 +391,7 @@ program.command('make')
         --temp="$\{project_path\}/tmp/igor/temp" \
         --of="$\{project_path\}/tmp/igor/out/$\{project_name\}.win" \
         --tf="$\{zip_name\}.zip" \
-        -- $target ${config.launch};
+        -- $target ${config.launch} | GREP_COLORS='mt=01;31' grep --color=always -E 'Error : |$'
 
       exit 0
     `;
