@@ -87,7 +87,7 @@ function getPSMonitorRAMCommand(processName, interval, name) {
 }
 
 const program = new Command()
-  .version('2.0.0', '-v, --version, ', 'output the current version');
+  .version('2.0.1', '-v, --version, ', 'output the current version');
 
 const config = program
   .command('config')
@@ -346,6 +346,7 @@ program
       clean: 'false',
       launch: 'PackageZip',
       name: packageGM.data.name,
+      zip: packageGM.data.name,
       yyp: path.basename(packageGM.data.main).replaceAll("\\", "/"),
       path: path.join(path.dirname(packageGM.file), path.dirname(packageGM.data.main)).replaceAll("\\", "/"),
     };
@@ -368,7 +369,7 @@ program
     }
 
     if (options.name !== undefined && typeof options.name === 'string' && options.name.trim() !== '') {
-      config.name = options.name;
+      config.zip = options.name;
     }
 
     const shellScript = `#!/bin/bash
@@ -448,7 +449,7 @@ program
         exit 1
       fi
 
-      zip_name=${config.name}
+      zip_name=${config.zip}
       echo $zip_name
       if [ -z "$zip_name" ]; then
         log_error "--name must be defined! exit 1"
