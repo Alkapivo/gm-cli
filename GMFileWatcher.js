@@ -83,7 +83,7 @@ function syncWatcherHook() {
  * --------------------------------------------------------- */
 class GMFileWatcher {
   constructor(gmPackage, modulesDir, watch = false) {
-    this.gmPath = resolvePath(gmPackage.main);
+    this.gmPath = path.dirname(resolvePath(gmPackage.main));
     this.modulesDirName = modulesDir;
     this.modulesDirPath = resolvePath(modulesDir);
     this.timestamp = "";

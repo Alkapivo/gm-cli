@@ -2,14 +2,107 @@
 
 import { watch, sync } from './GMFileWatcher.js';
 import path from 'path';
-import { program } from 'commander';
+import { Command } from 'commander';
 import { spawn, execSync } from 'child_process';
 import fs from 'fs';
 import readline from 'readline';
 
+function findFileUpwardsSync(filename, maxLevels = 99) {
+  let currentDir = process.cwd();
+  for (let i = 0; i < maxLevels; i++) {
+    const candidate = path.join(currentDir, filename);
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
 
-program.version('1.0.5', '-v, --version, ', 'output the current version');
-program.command('init')
+    const parentDir = path.dirname(currentDir);
+    if (parentDir === currentDir) {
+      break;
+    }
+
+    currentDir = parentDir;
+  }
+
+  return null;
+}
+
+function getPackageGM() {
+  const file = findFileUpwardsSync("package-gm.json");
+  if (file === null) {
+    throw new Error('❌ package-gm.json was not found')
+  }
+
+  return {
+    file: file,
+    data: JSON.parse(fs.readFileSync(file, "utf8")),
+  }
+}
+
+function backupPackageGM(packageGM) {
+  console.log(`📝 Backup package-gm.json: ${packageGM.file}.old`);
+  fs.copyFileSync(packageGM.file, `${packageGM.file}.old`);
+}
+
+function savePackageGM(packageGM) {
+  fs.writeFileSync(packageGM.file, JSON.stringify(packageGM.data, null, 2), "utf8");
+}
+
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function getPSMonitorRAMCommand(processName, interval, name) {
+  const psCommand = `
+    \$processName = "${processName}"
+    \$interval = ${interval}
+    \$reportFile = "${name}"
+    \$timestamp = Get-Date -Format "yyyy-MM-dd_hh-mm"
+    if (\$reportFile -eq "") {
+      \$reportFile = "\$processName_\$timestamp-ram-report.csv"
+    }
+
+    if (-not (Test-Path \$reportFile)) {
+      "date,RAM_MB" | Out-File -FilePath \$reportFile -Encoding UTF8
+    }
+
+    echo "Monitoring RAM usage..."
+
+    while (\$true) {
+      \$date = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+      try {
+        \$process = Get-Process -Name \$processName -ErrorAction Stop
+        \$ramMB = [math]::Round(\$process.WorkingSet64 / 1MB, 2)
+        "\$date,\$ramMB" | Out-File -Append -Encoding utf8 -FilePath \$reportFile
+        echo "\$date TEST   [${processName}::monitor-ram]: \$ramMB"
+      } catch {
+        #"\$date,PROCESS_NOT_RUNNING" | Out-File -Append -Encoding utf8 -FilePath \$reportFile
+        echo "\$date TEST   [${processName}::monitor-ram]: PROCESS_NOT_RUNNING"
+      }
+
+      Start-Sleep -Milliseconds \$interval
+    }
+  `
+
+  return psCommand
+}
+
+const program = new Command()
+  .version('2.0.0', '-v, --version, ', 'output the current version');
+
+const config = program
+  .command('config')
+  .description('Manage configuration');
+
+const configSet = config
+  .command('set')
+  .description('Set config values');
+
+const configUnset = config
+  .command('unset')
+  .description('Unset config values');
+
+program
+  .command('init')
   .description('CLI creator for package-gm.json')
   .action(async () => {
     const rl = readline.createInterface({
@@ -24,28 +117,34 @@ program.command('init')
 
       const projectPath = process.cwd();
       const basename = path.basename(projectPath);
-      const version = "1.0.0";
+      const version = "0.0.1";
       const propertyPackage = await askQuestion(`package name: (${basename}) `);
       const propertyVersion = await askQuestion(`version: (${version}) `);
       const propertyDescription = await askQuestion('description: ');
-      const propertyGamemaker = await askQuestion('gamemaker project path: ');
+      const propertyYYP = await askQuestion('gamemaker project file (.yyp): ');
       const propertyTest = await askQuestion('test command: ');
       const propertyGit = await askQuestion('git repository: ');
       const propertyKeywords = await askQuestion('keywords: ');
       const propertyAuthor = await askQuestion('author: ');
       const propertyLicense = await askQuestion('license: (ISC) ');
       const data = {
-        package: propertyPackage === null || propertyPackage === '' ? basename : propertyPackage,
-        version: propertyVersion === null || propertyVersion === '' ? version : propertyVersion,
+        name: propertyPackage === null || propertyPackage === '' 
+          ? basename 
+          : propertyPackage,
+        version: propertyVersion === null || propertyVersion === ''
+          ? version 
+          : propertyVersion,
         description: propertyDescription,
-        main: propertyGamemaker,
-        test: propertyTest,
+        main: propertyYYP,
         git: propertyGit,
         keywords: propertyKeywords,
         author: propertyAuthor,
         license: propertyLicense,
-        scripts: {},
+        scripts: {
+          test: propertyTest
+        },
         dependencies: {},
+        runtimes: {},
       };
       
       const filePath = path.join(projectPath, 'package-gm.json');
@@ -65,17 +164,23 @@ program.command('init')
       process.exit(0);
     }
   });
-program.command('watch')
+
+program
+  .command('watch')
   .description('Watch modules dir and copy code to gamemaker project')
   .action(() => {
     watch(path.normalize(path.join(process.cwd(), 'package-gm.json')))
   });
-program.command('sync')
+
+program
+  .command('sync')
   .description('Copy code from modules dir to gamemaker project')
   .action(() => {
     sync(path.normalize(path.join(process.cwd(), 'package-gm.json')))
   });
-program.command('install')
+
+program
+  .command('install')
   .description('Install dependencies listed in package-gm.json to gm_modules folder')
   .option('-c, --clean', 'remove existing gm_modules')
   .option('-s, --shallow', 'git clone will use depth=1 branch=REVISION')
@@ -83,7 +188,6 @@ program.command('install')
     const options = this.opts();
     const clean = options.clean !== undefined;
     const shallow = options.shallow !== undefined;
-    const packageJsonPath = 'package-gm.json';
     const modulesDir = 'gm_modules';
 
     if (!fs.existsSync(modulesDir)) {
@@ -93,8 +197,8 @@ program.command('install')
       fs.mkdirSync(modulesDir);
     }
 
-    const packageData = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
-    const dependencies = packageData.dependencies;
+    const packageGM = getPackageGM()
+    const dependencies = packageGM.data.dependencies;
     Object.entries(dependencies).forEach(([key, dependency]) => {
       console.log(`\n📦️ Install ${key}\n===========${"=".repeat(key.length)}`)
       const modulePath = path.join(modulesDir, key);
@@ -123,7 +227,9 @@ program.command('install')
     console.log('\n\n✅ All dependencies processed.');
     process.exit(0);
   })
-program.command('run')
+
+program
+  .command('run')
   .description('Run the script named <foo>')
   .argument('<foo>', 'script name')
   .action((foo) => {
@@ -133,9 +239,8 @@ program.command('run')
       return process.exit(1);
     }
 
-    const packageJsonPath = 'package-gm.json';
-    const packageData = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
-    const scriptData = packageData.scripts[foo]
+    const packageGM = getPackageGM()
+    const scriptData = packageGM.data.scripts[foo]
     if (typeof scriptData !== 'string') {
       console.log(`script ${foo} wasn't found`);
       console.log(`Exited with code 1`);
@@ -143,6 +248,8 @@ program.command('run')
     }
 
     const shellScript = `#!/bin/bash
+    cd ${path.dirname(packageGM.file).replaceAll("\\", "/")}
+  
     ${scriptData}
     `;
     const bashProcess = spawn("bash", ["-s"], { stdio: ["pipe", "inherit", "inherit"] });
@@ -153,7 +260,9 @@ program.command('run')
       process.exit(code);
     });
   });
-program.command('generate')
+
+program
+  .command('generate')
   .description('Generate *.yyp IncludedFiles section')
   .action(function() {
     function getFilesRecursively(dir, root) {
@@ -169,25 +278,6 @@ program.command('generate')
         }
       }
       return files;
-    }
-
-    function findFileUpwardsSync(filename = "gm-cli.env", maxLevels = 99) {
-      let currentDir = process.cwd();
-      for (let i = 0; i < maxLevels; i++) {
-        const candidate = path.join(currentDir, filename);
-        if (fs.existsSync(candidate)) {
-          return candidate;
-        }
-
-        const parentDir = path.dirname(currentDir);
-        if (parentDir === currentDir) {
-          break;
-        }
-
-        currentDir = parentDir;
-      }
-
-      return null;
     }
 
     function parseEnvFile(filePath) {
@@ -209,28 +299,24 @@ program.command('generate')
       return result;
     }
 
-    const envFile = findFileUpwardsSync();
+    const envFile = findFileUpwardsSync(".gm-cli.env");
     if (envFile === null) {
-      console.error('gm-cli.env was not found')
+      console.error('.gm-cli.env was not found')
       return
+    }
+
+    const packageGM = getPackageGM()
+    if (packageGM === null) {
+      return null
     }
 
     const envPath = path.dirname(envFile).replaceAll("\\", "/");
     const envMap = parseEnvFile(envFile);
-    if (!envMap.has("GMS_PROJECT_PATH")) {
-      console.error(`GMS_PROJECT_PATH was not defined in ${envFile}`)
-      return
-    }
-
-    if (!envMap.has("GMS_PROJECT_NAME")) {
-      console.error(`GMS_PROJECT_NAME was not defined in ${envFile}`)
-      return
-    }
-
-    const projectPath = path.join(envPath, envMap.get("GMS_PROJECT_PATH")).replaceAll("\\", "/");
-    const yypPath = path.join(projectPath, `${envMap.get("GMS_PROJECT_NAME")}.yyp`).replaceAll("\\", "/");
-    const yypOldPath = path.join(projectPath, `${envMap.get("GMS_PROJECT_NAME")}.yyp.old`).replaceAll("\\", "/");
+    const projectPath = path.dirname(path.join(path.dirname(packageGM.file), packageGM.data.main.replaceAll("\\", "/")));
+    const yypPath = path.join(path.dirname(packageGM.file), packageGM.data.main.replaceAll("\\", "/"));
+    const yypOldPath = `${yypPath}.old`
     const yyp = fs.readFileSync(yypPath, "utf8");
+    console.log(`📝 Backup yyp:`, yypOldPath);
     fs.copyFileSync(yypPath, yypOldPath);
 
     const datafilesPath = path.join(projectPath, "datafiles").replaceAll("\\", "/")
@@ -238,9 +324,12 @@ program.command('generate')
     const replaced = yyp.replace(/"IncludedFiles"\s*:\s*\[(.*?)\]/s, `"IncludedFiles":[
     ${datafiles.join("\n    ")}
   ]`);
+    console.log(`📝 Save yyp:`, yypPath);
     fs.writeFileSync(yypPath, replaced, "utf8");
   });
-program.command('make')
+
+program
+  .command('make')
   .description('Build and run gamemaker project')
   .option('-t, --target <target>', 'available targets: windows')
   .option('-r, --runtime <type>', 'use VM or YYC runtime')
@@ -248,15 +337,17 @@ program.command('make')
   .option('-l, --launch', 'launch the executable after building')
   .option('-c, --clean', 'make clean build')
   .action(function() {
+    const packageGM = getPackageGM()
     const targetMap = new Map([ [ 'windows', 'win' ] ])
     const options = this.opts();
     const config = {
-      runtime: '$GMS_RUNTIME',
-      target: '$GMS_TARGET',
-      targetExt: 'win',
+      runtime: '$GM_CLI_DEFAULT_RUNTIME',
+      target: '$GM_CLI_DEFAULT_TARGET',
       clean: 'false',
       launch: 'PackageZip',
-      name: '$GMS_PROJECT_NAME',
+      name: packageGM.data.name,
+      yyp: path.basename(packageGM.data.main).replaceAll("\\", "/"),
+      path: path.join(path.dirname(packageGM.file), path.dirname(packageGM.data.main)).replaceAll("\\", "/"),
     };
 
     if (options.runtime !== undefined) {
@@ -294,8 +385,8 @@ program.command('make')
       gm_cli_env_path=""
       dir=$(realpath "$PWD")
       while [ "$dir" != "/" ]; do
-        if [ -f "$dir/gm-cli.env" ]; then
-          gm_cli_env_path="$dir/gm-cli.env"
+        if [ -f "$dir/.gm-cli.env" ]; then
+          gm_cli_env_path="$dir/.gm-cli.env"
           log_info "Load configuration '$gm_cli_env_path'"
           set -a
           . "$gm_cli_env_path"
@@ -305,56 +396,55 @@ program.command('make')
         dir=$(dirname "$dir")
       done
 
-      igor_path=$GMS_IGOR_PATH
-      if [ -z "$igor_path" ]; then
-        log_error "GMS_IGOR_PATH must be defined! exit 1"
-        exit 1
-      fi
-
-      project_name=$GMS_PROJECT_NAME
-      if [ -z "$project_name" ]; then
-        log_error "GMS_PROJECT_NAME must be defined! exit 1"
-        exit 1
-      fi
-      
-      project_path=$GMS_PROJECT_PATH
-      if [ -z "$project_path" ]; then
-        log_error "GMS_PROJECT_PATH must be defined! exit 1"
-        exit 1
-      fi
-      
-      project_path=$(dirname "$gm_cli_env_path")/$project_path
-      project_path=$(realpath $project_path)
-
-      user_path=$GMS_USER_PATH
-      if [ -z "$user_path" ]; then
-        log_error "GMS_USER_PATH must be defined! exit 1"
-        exit 1
-      fi
-      user_path=$(realpath $user_path)
-
-      runtime_path=$GMS_RUNTIME_PATH
+      runtime_path=$GM_CLI_RUNTIME_PATH
       if [ -z "$runtime_path" ]; then
-        log_error "GMS_RUNTIME_PATH must be defined! exit 1"
+        log_error "GM_CLI_RUNTIME_PATH must be defined! exit 1"
         exit 1
       fi
       runtime_path=$(realpath $runtime_path)
 
+      igor_path="$\{GM_CLI_RUNTIME_PATH%/\}/bin/igor/windows/x64/Igor.exe"
+      if [ -z "$igor_path" ]; then
+        log_error "GM_CLI_RUNTIME_PATH must be defined! exit 1"
+        exit 1
+      fi
+      igor_path=$(realpath $igor_path)
+
+      project_name=${config.name}
+      if [ -z "$project_name" ]; then
+        log_error "package-gm.json name field must be defined! exit 1"
+        exit 1
+      fi
+      
+      project_yyp=${config.yyp}
+      if [ -z "$project_yyp" ]; then
+        log_error "package-gm.json yyp field must be defined! exit 1"
+        exit 1
+      fi
+
+      project_path=${config.path}
+      if [ -z "$project_path" ]; then
+        log_error "package-gm.json yyp field must be defined! exit 1"
+        exit 1
+      fi
+      project_path=$(realpath $project_path)
+
+      user_path=$GM_CLI_USER_PATH
+      if [ -z "$user_path" ]; then
+        log_error "GM_CLI_USER_PATH must be defined! exit 1"
+        exit 1
+      fi
+      user_path=$(realpath $user_path)
+
       runtime=${config.runtime}
       if [ -z "$runtime" ]; then
-        log_error "GMS_RUNTIME must be defined! exit 1"
+        log_error "GM_CLI_DEFAULT_RUNTIME must be defined! exit 1"
         exit 1
       fi
 
       target=${config.target}
       if [ -z "$target" ]; then
-        log_error "GMS_TARGET must be defined! exit 1"
-        exit 1
-      fi
-
-      target_ext=${config.targetExt}
-      if [ -z "$target_ext" ]; then
-        log_error "GMS_TARGET_EXT must be defined! exit 1"
+        log_error "GM_CLI_DEFAULT_TARGET must be defined! exit 1"
         exit 1
       fi
 
@@ -370,20 +460,20 @@ program.command('make')
         log_info "Clean '$project_path/tmp/igor'"
         rm -rf $project_path/tmp/igor
         
-        log_info "Execute shell command:\n\\\e[33m$igor_path \\ \n  --runtimePath="$runtime_path" \\ \n  --runtime=$runtime \\ \n  --project="$\{project_path\}/$\{project_name\}.yyp" \\ \n  -- $target Clean\n\\\e[0m"
+        log_info "Execute shell command:\n\\\e[33m$igor_path \\ \n  --runtimePath="$runtime_path" \\ \n  --runtime=$runtime \\ \n  --project="$\{project_path\}/$\{project_yyp\}" \\ \n  -- $target Clean\n\\\e[0m"
         $igor_path \
           --runtimePath="$runtime_path" \
           --runtime=$runtime \
-          --project="$\{project_path\}/$\{project_name\}.yyp" \
+          --project="$\{project_path\}/$\{project_yyp\}" \
           -- $target Clean | GREP_COLORS='mt=01;31' grep --color=always -E 'Error : |$'
       fi
 
       log_info "Clean '$\{project_path\}/tmp/igor/out'"
       rm -rf $\{project_path\}/tmp/igor/out
 
-      log_info "Execute shell command:\n\\\e[33m$igor_path \\ \n --project="$\{project_path\}/$\{project_name\}.yyp" \\ \n --user="$user_path" \\ \n --runtimePath="$runtime_path" \\ \n --runtime=$runtime \\ \n --cache="$\{project_path\}/tmp/igor/cache" \\ \n --temp="$\{project_path\}/tmp/igor/temp" \\ \n --of="$\{project_path\}/tmp/igor/out/$\{project_name\}.win" \\ \n --tf="$\{zip_name\}.zip" \\ \n -- $target ${config.launch}\\\e[0m"
+      log_info "Execute shell command:\n\\\e[33m$igor_path \\ \n --project="$\{project_path\}/$\{project_yyp\}" \\ \n --user="$user_path" \\ \n --runtimePath="$runtime_path" \\ \n --runtime=$runtime \\ \n --cache="$\{project_path\}/tmp/igor/cache" \\ \n --temp="$\{project_path\}/tmp/igor/temp" \\ \n --of="$\{project_path\}/tmp/igor/out/$\{project_name\}.win" \\ \n --tf="$\{zip_name\}.zip" \\ \n -- $target ${config.launch}\\\e[0m"
       $igor_path \
-        --project="$\{project_path\}/$\{project_name\}.yyp" \
+        --project="$\{project_path\}/$\{project_yyp\}" \
         --user="$user_path" \
         --runtimePath="$runtime_path" \
         --runtime=$runtime \
@@ -404,4 +494,270 @@ program.command('make')
       process.exit(code);
     });
   });
-program.parse();
+
+program
+  .command('env')
+  .description('CLI creator for .gm-cli.env')
+  .action(async () => {
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout
+    });
+    const askQuestion = (query) => new Promise(resolve => rl.question(query, resolve));
+
+    try {
+      console.log("This utility will walk you through creating a .gm-cli.env file.");
+
+      const runtimes = [ "VM", "YYC" ]
+      const targets = [ "windows" ]
+
+      const projectPath = process.cwd();
+      const propertyDefaultRuntime = await askQuestion('Default runtime [ VM, YYC ]: ');
+      const propertyDefaultTarget = await askQuestion('Default target [ windows ]: ');
+      const propertyRuntimePath = await askQuestion('Path to gamemaker runtime: ');
+      const propertyUserPath = await askQuestion('Path to gamemaker user: ');
+      const data = {
+        GM_CLI_DEFAULT_RUNTIME: runtimes.includes(propertyDefaultRuntime) ? propertyDefaultRuntime : runtimes[0],
+        GM_CLI_DEFAULT_TARGET: runtimes.includes(propertyDefaultTarget) ? propertyDefaultTarget : targets[0],
+        GM_CLI_RUNTIME_PATH: path.normalize(propertyRuntimePath),
+        GM_CLI_USER_PATH: path.normalize(propertyUserPath)
+      };
+      
+      const filePath = path.join(projectPath, '.gm-cli.env');
+      const dataString = Object.entries(data)
+        .map(([key, value]) => `${key}="${value}"`)
+        .join("\n");
+
+      console.log(`About to write to ${filePath}:\n\n${dataString}\n\n`);
+      const response = await askQuestion(`Is this OK? (yes) `)
+      if (typeof response === 'string' && (response.includes('y') || response.includes('Y'))) {
+        fs.writeFileSync(filePath, dataString, 'utf8');
+      } else {
+        console.log('Aborted.\n');
+      }
+    } catch (error) {
+      console.error('An error occurred:', error);
+    } finally {
+      rl.close();
+      process.exit(0);
+    }
+  });
+
+program
+  .command('monitor-ram')
+  .description('Monitor RAM usage and save it to csv file')
+  .option('-i, --interval <interval>', 'step value in seconds (default = 15)')
+  .option('-n, --name <name>', 'name of binary')
+  .option('-r, --report <report>', 'name of CSV report file')
+  .action((options) => {
+    const packageGM = getPackageGM()
+    const interval = clamp((Number.isNaN(Number(options.interval)) ? 15.0 : Number(options.interval)), 1.0 / 60.0, 999.0)
+    const name = options.name === undefined ? packageGM.data.name : options.name 
+    const report = options.report === undefined ? '' : options.report
+    const psCommand = getPSMonitorRAMCommand(name, 1000.0 * interval, report)
+    const ps = spawn('powershell.exe', [
+      '-NoProfile',
+      '-Command',
+      psCommand
+    ]);
+
+    ps.stdout.on('data', data => {
+      console.log(data.toString().replace(/\r?\n$/, ''));
+    });
+
+    ps.stderr.on('data', data => {
+      console.error(data.toString().replace(/\r?\n$/, ''));
+    });
+
+    ps.on('close', code => {
+      console.log(`Exited with code ${code}`);
+    });
+  })
+
+program
+  .command('test')
+  .description('Run tests')
+  .option('-t, --tests <tests>', 'List of paths to json test cases')
+  .option('-b, --build <build>', 'Path to executable')
+  .option('-m, --monitorRAM', 'Monitor RAM while testing')
+  .action((options) => {
+    const packageGM = getPackageGM()
+
+    const shellMonitorRAMScript = options.monitorRAM === undefined ? `` : `
+    set -m
+    gm-cli monitor-ram --name \$\{EXE_FILE%.exe\} &
+    pid=\$!
+    trap "kill -- -\$pid 2>/dev/null" EXIT INT TERM
+    `;
+
+    const shellBuildScript = options.build !== undefined ? `
+    cd ${path.dirname(options.build).replaceAll("\\", "/")}
+    build_name="\$\{PWD##*/\}"
+    
+    EXE_FILE="${path.basename(options.build)}"
+    EXE_COUNT=1
+    ` : `
+    build_name="${packageGM.data.name}_test"
+    rm -rf \$build_name.zip
+    rm -rf \$build_name
+    gm-cli make --name \$build_name
+    unzip \$build_name.zip -d \$build_name
+    cd \$build_name
+
+    EXE_FILE=\$(find . -maxdepth 1 -type f -name "*.exe" -printf "%f\n" 2>/dev/null)
+    EXE_COUNT=\$(printf "%s\n" "\$EXE_FILE" | grep -c .)
+    `;
+
+    const shellTestScript = options.tests === undefined ? `
+    TESTS=\$(find . -type f -name "*test.json" -print0 | xargs -0 echo | sed 's/ /, /g')
+    ` : `
+    TESTS=\"${options.tests}\"
+    `
+
+    const shellCommandScript = `
+    TIMESTAMP=\$(date +"%Y-%m-%d_%H-%M")
+    OUTPUT_FILE="\$\{TIMESTAMP\}_\$\{EXE_FILE%.exe\}_run-test.log"
+    COMMAND="./\$EXE_FILE -output \"\$OUTPUT_FILE\" --tests \\\"\$TESTS\\\""
+  
+    if [ "\$EXE_COUNT" -eq 0 ]; then
+      echo "ERROR 1: binary was not found"
+      exit 1
+    elif [ "\$EXE_COUNT" -gt 1 ]; then
+      echo "ERROR 2: found more executables: \$EXE_FILE"
+      exit 2
+    fi
+    `;
+
+    const shellScript = `#!/bin/bash
+    cd ${path.dirname(packageGM.file).replaceAll("\\", "/")}
+
+    ${shellBuildScript}
+
+    ${shellTestScript}
+
+    ${shellCommandScript}
+
+    ${shellMonitorRAMScript}
+
+    eval "\$COMMAND" | cat
+    `
+
+    const bashProcess = spawn("bash", ["-s"], { stdio: ["pipe", "inherit", "inherit"] });
+    bashProcess.stdin.write(shellScript);
+    bashProcess.stdin.end();
+    bashProcess.on("exit", (code) => {
+      console.log(`Exited with code ${code}`);
+      process.exit(code);
+    });
+  })
+
+configSet
+  .command('dependency <name> <revision>')
+  .description('Manage dependencies in package-gm.json')
+  .option('--remote <remote>')
+  .action((name, revision, options) => {
+    const resolve = () => {
+      const current = packageGM.data.dependencies[name] ?? {};
+
+      packageGM.data.dependencies[name] = {
+        ...current,
+        ...(options.remote !== undefined && { remote: options.remote }),
+        ...(revision !== undefined && { revision }),
+      };
+
+      console.log("🔨  Set dependency", name, "as", packageGM.data.dependencies[name])
+    };
+  
+    const packageGM = getPackageGM()
+
+    backupPackageGM(packageGM)
+    resolve()
+    savePackageGM(packageGM)
+  });
+
+configSet
+  .command('script <name> [command]')
+  .description('Manage scripts in package-gm.json')
+  .action((name, command = '') => {
+    const resolve = () => {
+      packageGM.data.scripts[name] = command !== undefined ? command : ''
+      console.log("🔨  Set script", name, "as", packageGM.data.scripts[name])
+    }
+
+    const packageGM = getPackageGM()
+
+    backupPackageGM(packageGM)
+    resolve()
+    savePackageGM(packageGM)
+  });
+
+configSet
+  .command('runtime <name> [supported]')
+  .description('Manage runtimes in package-gm.json')
+  .action((name, supported = 'true') => {
+    const resolve = () => {
+      packageGM.data.runtimes[name] = supported === "false" ? supported : "true"
+      console.log("🔨  Set runtime", name, "as", supported === "false" ? "false" : "true")
+    }
+
+    const packageGM = getPackageGM()
+
+    backupPackageGM(packageGM)
+    resolve()
+    savePackageGM(packageGM)
+  });
+
+configUnset
+  .command('dependency <name>')
+  .description('Remove dependencies from package-gm.json')
+  .action((name) => {
+    const resolve = () => {
+      if (name in packageGM.data.dependencies) {
+        console.log("🗑️  Unset dependency", name)
+        delete packageGM.data.dependencies[name]
+      }
+    }
+
+    const packageGM = getPackageGM()
+
+    backupPackageGM(packageGM)
+    resolve()
+    savePackageGM(packageGM)
+  });
+
+configUnset
+  .command('script <name>')
+  .description('Remove scripts from package-gm.json')
+  .action((name) => {
+    const resolve = () => {
+      if (name in packageGM.data.scripts) {
+        console.log("🗑️  Unset script", name)
+        delete packageGM.data.scripts[name]
+      }
+    }
+
+    const packageGM = getPackageGM()
+
+    backupPackageGM(packageGM)
+    resolve()
+    savePackageGM(packageGM)
+  });
+
+configUnset
+  .command('runtime <name>')
+  .description('Remove runtimes from package-gm.json')
+  .action((name) => {
+    const resolve = () => {
+      if (name in packageGM.data.scripts) {
+        console.log("🗑️  Unset runtime", name)
+        delete packageGM.data.runtimes[name]
+      }
+    }
+
+    const packageGM = getPackageGM()
+    backupPackageGM(packageGM)
+    resolve()
+    savePackageGM(packageGM)
+  });
+
+program.parse(process.argv);
