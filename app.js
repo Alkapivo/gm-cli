@@ -1,11 +1,12 @@
 #! /usr/bin/env node
 
 import { watch, sync } from './GMFileWatcher.js';
-import path from 'path';
+import path from 'node:path';
 import { Command } from 'commander';
 import { spawn, execSync } from 'child_process';
 import fs from 'fs';
 import readline from 'readline';
+import { fileURLToPath } from "node:url";
 
 function findFileUpwardsSync(filename, maxLevels = 99) {
   let currentDir = process.cwd();
@@ -36,6 +37,10 @@ function getPackageGM() {
     file: file,
     data: JSON.parse(fs.readFileSync(file, "utf8")),
   }
+}
+
+function getYYPPathFromPackageGM(packageGM) {
+  return path.join(path.dirname(packageGM.file), packageGM.data.main).replaceAll("\\", "/");
 }
 
 function backupPackageGM(packageGM) {
@@ -86,8 +91,22 @@ function getPSMonitorRAMCommand(processName, interval, name) {
   return psCommand
 }
 
+function runShellScript(scriptData) {
+  const bashProcess = spawn("bash", ["-s"], { stdio: ["pipe", "inherit", "inherit"] });
+  bashProcess.stdin.write(`#!/bin/bash\nset -Eeuo pipefail\n${scriptData}`);
+  bashProcess.stdin.end();
+  bashProcess.on("close", (code) => {
+    console.log(`Exited with code ${code}`);
+    process.exit(code);
+  });
+  return bashProcess
+}
+
+
+const packageJson = JSON.parse(fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "package.json"), "utf-8"));
+
 const program = new Command()
-  .version('2.0.1', '-v, --version, ', 'output the current version');
+  .version(packageJson.version, '-v, --version, ', 'output the current version');
 
 const config = program
   .command('config')
@@ -100,6 +119,11 @@ const configSet = config
 const configUnset = config
   .command('unset')
   .description('Unset config values');
+
+const resource = program
+  .command("resource")
+  .description("Manage resources");
+
 
 program
   .command('init')
@@ -252,13 +276,7 @@ program
   
     ${scriptData}
     `;
-    const bashProcess = spawn("bash", ["-s"], { stdio: ["pipe", "inherit", "inherit"] });
-    bashProcess.stdin.write(shellScript);
-    bashProcess.stdin.end();
-    bashProcess.on("exit", (code) => {
-      console.log(`Exited with code ${code}`);
-      process.exit(code);
-    });
+    runShellScript(shellScript)
   });
 
 program
@@ -313,7 +331,7 @@ program
     const envPath = path.dirname(envFile).replaceAll("\\", "/");
     const envMap = parseEnvFile(envFile);
     const projectPath = path.dirname(path.join(path.dirname(packageGM.file), packageGM.data.main.replaceAll("\\", "/")));
-    const yypPath = path.join(path.dirname(packageGM.file), packageGM.data.main.replaceAll("\\", "/"));
+    const yypPath = getYYPPathFromPackageGM(packageGM)
     const yypOldPath = `${yypPath}.old`
     const yyp = fs.readFileSync(yypPath, "utf8");
     console.log(`📝 Backup yyp:`, yypOldPath);
@@ -336,6 +354,7 @@ program
   .option('-n, --name <name>', 'The actual file name of the ZIP file that is created')
   .option('-l, --launch', 'launch the executable after building')
   .option('-c, --clean', 'make clean build')
+  .option('-p, --projectool', 'Path to ProjectTool.exe')
   .action(function() {
     const packageGM = getPackageGM()
     const targetMap = new Map([ [ 'windows', 'win' ] ])
@@ -343,6 +362,7 @@ program
     const config = {
       runtime: '$GM_CLI_DEFAULT_RUNTIME',
       target: '$GM_CLI_DEFAULT_TARGET',
+      projectool: '$GM_CLI_PROJECT_TOOL_PATH',
       clean: 'false',
       launch: 'PackageZip',
       name: packageGM.data.name,
@@ -358,6 +378,10 @@ program
     if (options.target !== undefined && targetMap.has(options.target)) {
       config.target = options.target;
       config.targetExt = targetMap.get(config.target);
+    }
+
+    if (options.projectool !== undefined) {
+      config.projectool = options.projectool;
     }
 
     if (options.clean !== undefined) {
@@ -456,23 +480,31 @@ program
         exit 1
       fi
 
+      project_tool=${config.projectool}
+      echo $project_tool
+      if [ -z "$project_tool" ]; then
+        log_error "--projectool must be defined! exit 1"
+        exit 1
+      fi
+
       clean=${config.clean}
       if [ "$clean" = "true" ]; then
         log_info "Clean '$project_path/tmp/igor'"
         rm -rf $project_path/tmp/igor
         
-        log_info "Execute shell command:\n\\\e[33m$igor_path \\ \n  --runtimePath="$runtime_path" \\ \n  --runtime=$runtime \\ \n  --project="$\{project_path\}/$\{project_yyp\}" \\ \n  -- $target Clean\n\\\e[0m"
+        log_info "Execute shell command:\n\\\e[33m$igor_path \\ \n  --runtimePath="$runtime_path" \\ \n  --runtime=$runtime \\ \n  --project="$\{project_path\}/$\{project_yyp\}" \\ \n --projectool="$\{project_tool\}" \\ \n  -- $target Clean\n\\\e[0m"
         $igor_path \
           --runtimePath="$runtime_path" \
           --runtime=$runtime \
           --project="$\{project_path\}/$\{project_yyp\}" \
+          --projectool="$\{project_tool\}" \
           -- $target Clean | GREP_COLORS='mt=01;31' grep --color=always -E 'Error : |$'
       fi
 
       log_info "Clean '$\{project_path\}/tmp/igor/out'"
       rm -rf $\{project_path\}/tmp/igor/out
 
-      log_info "Execute shell command:\n\\\e[33m$igor_path \\ \n --project="$\{project_path\}/$\{project_yyp\}" \\ \n --user="$user_path" \\ \n --runtimePath="$runtime_path" \\ \n --runtime=$runtime \\ \n --cache="$\{project_path\}/tmp/igor/cache" \\ \n --temp="$\{project_path\}/tmp/igor/temp" \\ \n --of="$\{project_path\}/tmp/igor/out/$\{project_name\}.win" \\ \n --tf="$\{zip_name\}.zip" \\ \n -- $target ${config.launch}\\\e[0m"
+      log_info "Execute shell command:\n\\\e[33m$igor_path \\ \n --project="$\{project_path\}/$\{project_yyp\}" \\ \n --user="$user_path" \\ \n --runtimePath="$runtime_path" \\ \n --runtime=$runtime \\ \n --cache="$\{project_path\}/tmp/igor/cache" \\ \n --temp="$\{project_path\}/tmp/igor/temp" \\ \n --of="$\{project_path\}/tmp/igor/out/$\{project_name\}.win" \\ \n --tf="$\{zip_name\}.zip" \\ \n --projectool="$\{project_tool\}" \\ \n -- $target ${config.launch}\\\e[0m"
       $igor_path \
         --project="$\{project_path\}/$\{project_yyp\}" \
         --user="$user_path" \
@@ -482,18 +514,13 @@ program
         --temp="$\{project_path\}/tmp/igor/temp" \
         --of="$\{project_path\}/tmp/igor/out/$\{project_name\}.win" \
         --tf="$\{zip_name\}.zip" \
+        --projectool="$\{project_tool\}" \
         -- $target ${config.launch} | GREP_COLORS='mt=01;31' grep --color=always -E 'Error : |$'
 
       exit 0
     `;
 
-    const bashProcess = spawn("bash", ["-s"], { stdio: ["pipe", "inherit", "inherit"] });
-    bashProcess.stdin.write(shellScript);
-    bashProcess.stdin.end();
-    bashProcess.on("exit", (code) => {
-      console.log(`Exited with code ${code}`);
-      process.exit(code);
-    });
+    runShellScript(shellScript)
   });
 
 program
@@ -515,11 +542,13 @@ program
       const projectPath = process.cwd();
       const propertyDefaultRuntime = await askQuestion('Default runtime [ VM, YYC ]: ');
       const propertyDefaultTarget = await askQuestion('Default target [ windows ]: ');
+      const propertyProjectoolPath = await askQuestion('Path to ProjectTool.exe: ');
       const propertyRuntimePath = await askQuestion('Path to gamemaker runtime: ');
       const propertyUserPath = await askQuestion('Path to gamemaker user: ');
       const data = {
         GM_CLI_DEFAULT_RUNTIME: runtimes.includes(propertyDefaultRuntime) ? propertyDefaultRuntime : runtimes[0],
         GM_CLI_DEFAULT_TARGET: runtimes.includes(propertyDefaultTarget) ? propertyDefaultTarget : targets[0],
+        GM_CLI_PROJECT_TOOL_PATH: path.normalize(propertyProjectoolPath),
         GM_CLI_RUNTIME_PATH: path.normalize(propertyRuntimePath),
         GM_CLI_USER_PATH: path.normalize(propertyUserPath)
       };
@@ -643,13 +672,7 @@ program
     eval "\$COMMAND" | cat
     `
 
-    const bashProcess = spawn("bash", ["-s"], { stdio: ["pipe", "inherit", "inherit"] });
-    bashProcess.stdin.write(shellScript);
-    bashProcess.stdin.end();
-    bashProcess.on("exit", (code) => {
-      console.log(`Exited with code ${code}`);
-      process.exit(code);
-    });
+    runShellScript(shellScript)
   })
 
 configSet
@@ -756,9 +779,73 @@ configUnset
     }
 
     const packageGM = getPackageGM()
+
     backupPackageGM(packageGM)
     resolve()
     savePackageGM(packageGM)
   });
+
+resource
+  .command("create")
+  .description("Create a resource")
+  .requiredOption("-t, --type <type>", "Resource type")
+  .requiredOption("-n, --name <name>", "Resource name")
+  .option("-f, --folder <folder>", "Resource folder")
+  .action((options) => {
+    const packageGM = getPackageGM()
+    const yypPath = getYYPPathFromPackageGM(packageGM)
+    const folderOption = options.folder !== undefined ? `folder=${options.folder}` : ``
+    const shellScript = `yy-gm-cli resourcetool eval "resource create type=${options.type} name=${options.name} ${folderOption}" ${yypPath}`
+    runShellScript(shellScript)
+  });
+
+resource
+  .command("update")
+  .description("Update a resource property")
+  .requiredOption("-e, --expr <expr>", "Resource expression")
+  .requiredOption("-v, --value <value>", "New value")
+  .action((options) => {
+    const packageGM = getPackageGM()
+    const yypPath = getYYPPathFromPackageGM(packageGM)
+    const shellScript = `yy-gm-cli resourcetool eval "resource set expr=${options.expr} value=${options.value}" ${yypPath}`
+    runShellScript(shellScript)
+  });
+
+resource
+  .command("get")
+  .description(" a resource")
+  .requiredOption("-e, --expr <expr>", "Resource expression")
+  .action((options) => {
+    const packageGM = getPackageGM()
+    const yypPath = getYYPPathFromPackageGM(packageGM)
+    const shellScript = `yy-gm-cli resourcetool eval "resource info expr=${options.expr}" ${yypPath}`
+    runShellScript(shellScript)
+  });
+
+resource
+  .command("delete")
+  .description("Delete a resource")
+  .requiredOption("-n, --name <name>", "Resource name")
+  .option("--type <type>", "Resource type")
+  .action((name, options) => {
+    const packageGM = getPackageGM()
+    const yypPath = getYYPPathFromPackageGM(packageGM)
+    const typeOptions = options.type !== undefined ? `type=${options.type}` : ``
+    const shellScript = `yy-gm-cli resourcetool eval "resource delete name=${options.name} ${typeOptions}" ${yypPath}`
+    runShellScript(shellScript)
+  });
+
+resource
+  .command("list")
+  .description("List resources")
+  .option("--type <type>", "Resource type")
+  .action((name, options) => {
+    const packageGM = getPackageGM()
+    const yypPath = getYYPPathFromPackageGM(packageGM)
+    const typeOptions = options.type !== undefined ? `type=${options.type}` : ``
+    const shellScript = `yy-gm-cli resourcetool eval "resource list ${typeOptions}" ${yypPath}`
+    runShellScript(shellScript)
+  });
+
 
 program.parse(process.argv);
