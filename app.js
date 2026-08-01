@@ -337,17 +337,6 @@ program
     console.log(`📝 Backup yyp:`, yypOldPath);
     fs.copyFileSync(yypPath, yypOldPath);
 
-    
-    const vsDevCmdPath = envMap.get("GM_CLI_VS_DEV_CMD_PATH")
-    if (vsDevCmdPath !== undefined) {
-      const localSettings = path.join(path.normalize(path.dirname(yypPath)), "local_settings.json").replaceAll("\\", "/")
-      const localSettingsJson = {
-        "machine.Platform Settings.Windows.visual_studio_path": vsDevCmdPath
-      } 
-      fs.writeFileSync(localSettings, JSON.stringify(localSettingsJson, null, 2), "utf8");
-    }
-    
-
     const datafilesPath = path.join(projectPath, "datafiles").replaceAll("\\", "/")
     const datafiles = getFilesRecursively(datafilesPath, datafilesPath)
     const replaced = yyp.replace(/"IncludedFiles"\s*:\s*\[(.*?)\]/s, `"IncludedFiles":[
@@ -503,12 +492,13 @@ program
         log_info "Clean '$project_path/tmp/igor'"
         rm -rf $project_path/tmp/igor
         
-        log_info "Execute shell command:\n\\\e[33m$igor_path \\ \n  --runtimePath="$runtime_path" \\ \n  --runtime=$runtime \\ \n  --project="$\{project_path\}/$\{project_yyp\}" \\ \n --projectool="$\{project_tool\}" \\ \n  -- $target Clean\n\\\e[0m"
+        log_info "Execute shell command:\n\\\e[33m$igor_path \\ \n  --runtimePath="$runtime_path" \\ \n  --runtime=$runtime \\ \n  --project="$\{project_path\}/$\{project_yyp\}" \\ \n --projectool="$\{project_tool\}" \\ \n --uf="$user_path"  \\ \n -- $target Clean\n\\\e[0m"
         $igor_path \
           --runtimePath="$runtime_path" \
           --runtime=$runtime \
           --project="$\{project_path\}/$\{project_yyp\}" \
           --projectool="$\{project_tool\}" \
+          --uf="$user_path" \
           -- $target Clean | GREP_COLORS='mt=01;31' grep --color=always -E 'Error : |$'
       fi
 
