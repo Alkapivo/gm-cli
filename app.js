@@ -337,6 +337,17 @@ program
     console.log(`📝 Backup yyp:`, yypOldPath);
     fs.copyFileSync(yypPath, yypOldPath);
 
+    
+    const vsDevCmdPath = envMap.get("GM_CLI_VS_DEV_CMD_PATH")
+    if (vsDevCmdPath !== undefined) {
+      const localSettings = path.join(path.normalize(path.dirname(yypPath)), "local_settings.json").replaceAll("\\", "/")
+      const localSettingsJson = {
+        "machine.Platform Settings.Windows.visual_studio_path": vsDevCmdPath
+      } 
+      fs.writeFileSync(localSettings, JSON.stringify(localSettingsJson, null, 2), "utf8");
+    }
+    
+
     const datafilesPath = path.join(projectPath, "datafiles").replaceAll("\\", "/")
     const datafiles = getFilesRecursively(datafilesPath, datafilesPath)
     const replaced = yyp.replace(/"IncludedFiles"\s*:\s*\[(.*?)\]/s, `"IncludedFiles":[
@@ -504,7 +515,7 @@ program
       log_info "Clean '$\{project_path\}/tmp/igor/out'"
       rm -rf $\{project_path\}/tmp/igor/out
 
-      log_info "Execute shell command:\n\\\e[33m$igor_path \\ \n --project="$\{project_path\}/$\{project_yyp\}" \\ \n --user="$user_path" \\ \n --runtimePath="$runtime_path" \\ \n --runtime=$runtime \\ \n --cache="$\{project_path\}/tmp/igor/cache" \\ \n --temp="$\{project_path\}/tmp/igor/temp" \\ \n --of="$\{project_path\}/tmp/igor/out/$\{project_name\}.win" \\ \n --tf="$\{zip_name\}.zip" \\ \n --projectool="$\{project_tool\}" \\ \n -- $target ${config.launch}\\\e[0m"
+      log_info "Execute shell command:\n\\\e[33m$igor_path \\ \n --project="$\{project_path\}/$\{project_yyp\}" \\ \n --user="$user_path" \\ \n --runtimePath="$runtime_path" \\ \n --runtime=$runtime \\ \n --cache="$\{project_path\}/tmp/igor/cache" \\ \n --temp="$\{project_path\}/tmp/igor/temp" \\ \n --of="$\{project_path\}/tmp/igor/out/$\{project_name\}.win" \\ \n --tf="$\{zip_name\}.zip" \\ \n --projectool="$\{project_tool\}" \\ \n --uf="$user_path" \\ \n -- $target ${config.launch}\\\e[0m"
       $igor_path \
         --project="$\{project_path\}/$\{project_yyp\}" \
         --user="$user_path" \
@@ -515,6 +526,7 @@ program
         --of="$\{project_path\}/tmp/igor/out/$\{project_name\}.win" \
         --tf="$\{zip_name\}.zip" \
         --projectool="$\{project_tool\}" \
+        --uf="$user_path" \
         -- $target ${config.launch} | GREP_COLORS='mt=01;31' grep --color=always -E 'Error : |$'
 
       exit 0
@@ -545,12 +557,14 @@ program
       const propertyProjectoolPath = await askQuestion('Path to ProjectTool.exe: ');
       const propertyRuntimePath = await askQuestion('Path to gamemaker runtime: ');
       const propertyUserPath = await askQuestion('Path to gamemaker user: ');
+      const propertyVsDevCmdPath = await askQuestion('Path to VsDevCmd.bat: ');
       const data = {
         GM_CLI_DEFAULT_RUNTIME: runtimes.includes(propertyDefaultRuntime) ? propertyDefaultRuntime : runtimes[0],
         GM_CLI_DEFAULT_TARGET: runtimes.includes(propertyDefaultTarget) ? propertyDefaultTarget : targets[0],
         GM_CLI_PROJECT_TOOL_PATH: path.normalize(propertyProjectoolPath),
         GM_CLI_RUNTIME_PATH: path.normalize(propertyRuntimePath),
-        GM_CLI_USER_PATH: path.normalize(propertyUserPath)
+        GM_CLI_USER_PATH: path.normalize(propertyUserPath),
+        GM_CLI_VS_DEV_CMD_PATH: path.normalize(propertyVsDevCmdPath),
       };
       
       const filePath = path.join(projectPath, '.gm-cli.env');
@@ -827,7 +841,7 @@ resource
   .description("Delete a resource")
   .requiredOption("-n, --name <name>", "Resource name")
   .option("--type <type>", "Resource type")
-  .action((name, options) => {
+  .action((options) => {
     const packageGM = getPackageGM()
     const yypPath = getYYPPathFromPackageGM(packageGM)
     const typeOptions = options.type !== undefined ? `type=${options.type}` : ``
@@ -839,7 +853,7 @@ resource
   .command("list")
   .description("List resources")
   .option("--type <type>", "Resource type")
-  .action((name, options) => {
+  .action((options) => {
     const packageGM = getPackageGM()
     const yypPath = getYYPPathFromPackageGM(packageGM)
     const typeOptions = options.type !== undefined ? `type=${options.type}` : ``
