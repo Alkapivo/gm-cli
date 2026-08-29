@@ -247,7 +247,7 @@ fi
           execSync(`git fetch ${fetchOptions}`, { shell: "bash", cwd: modulePath, stdio: 'inherit' });
           execSync(`${commit}git checkout --detach --force \$COMMIT`, { shell: "bash", cwd: modulePath, stdio: 'inherit' });
           execSync(`${commit}git reset --hard \$COMMIT`, { shell: "bash", cwd: modulePath, stdio: 'ignore' });
-          execSync(`git clean -fdx`, { shell: "bash", cwd: modulePath, stdio: 'inherit' });
+          execSync(`git clean -fd`, { shell: "bash", cwd: modulePath, stdio: 'inherit' });
         } catch (error) {
           console.log(`🗑️  Removing ${modulePath} because it's not a git repository`);
           fs.rmSync(modulePath, { recursive: true, force: true });
