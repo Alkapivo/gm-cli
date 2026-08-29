@@ -231,20 +231,23 @@ program
         try {
           execSync('git rev-parse --is-inside-work-tree', { cwd: modulePath, stdio: 'ignore' });
           console.log(`🌐 Syncing ${modulePath} to revision ${dependency.revision}`);
-          execSync('git reset --hard HEAD', { cwd: modulePath, stdio: 'inherit' });
-          execSync('git clean -fdx', { cwd: modulePath, stdio: 'inherit' });
-          execSync(`git checkout ${dependency.revision}`, { cwd: modulePath, stdio: 'inherit' });
+          execSync(`git fetch origin "${dependency.revision}"`, { cwd: modulePath, stdio: 'inherit' });
+          execSync(`git checkout --detach --force "${dependency.revision}"`, { cwd: modulePath, stdio: 'inherit' });
+          execSync(`git reset --hard "${dependency.revision}"`, { cwd: modulePath, stdio: 'inherit' });
+          execSync(`git clean -fdx`, { cwd: modulePath, stdio: 'inherit' });
         } catch (error) {
           console.log(`🗑️ Removing ${modulePath} because it's not a git repository`);
           fs.rmSync(modulePath, { recursive: true, force: true });
           console.log(`🔧 Initializing ${modulePath} to revision ${dependency.revision}`);
           execSync(`git clone ${cloneOptions} ${dependency.remote} ${modulePath}`, { stdio: 'inherit' });
-          execSync(`git checkout ${dependency.revision}`, { cwd: modulePath, stdio: 'inherit' });
+          execSync(`git fetch origin "${dependency.revision}"`, { cwd: modulePath, stdio: 'inherit' });
+          execSync(`git checkout --detach --force "${dependency.revision}"`, { cwd: modulePath, stdio: 'inherit' });
         }
       } else {
         console.log(`🔧 Initializing ${modulePath} to revision ${dependency.revision}`);
         execSync(`git clone ${cloneOptions} ${dependency.remote} ${modulePath}`, { stdio: 'inherit' });
-        execSync(`git checkout ${dependency.revision}`, { cwd: modulePath, stdio: 'inherit' });
+        execSync(`git fetch origin "${dependency.revision}"`, { cwd: modulePath, stdio: 'inherit' });
+        execSync(`git checkout --detach --force "${dependency.revision}"`, { cwd: modulePath, stdio: 'inherit' });
       }
     });
 
