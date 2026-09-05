@@ -8,6 +8,22 @@ import fs from 'fs';
 import readline from 'readline';
 import { fileURLToPath } from "node:url";
 
+
+///@return {[ string | undefined, string | undefined ]}
+function parseProgramOptions() {
+  const options = program.opts();
+  return [ options.package, options.env ]
+}
+
+///@params {string} path
+///@return {string}
+function sanitizePath(path) {
+  return path.replaceAll("\\", "/")
+}
+
+///@params {string} filename
+///@params {integer} maxLevels
+///@return {string | null}
 function findFileUpwardsSync(filename, maxLevels = 99) {
   let currentDir = process.cwd();
   for (let i = 0; i < maxLevels; i++) {
@@ -27,31 +43,40 @@ function findFileUpwardsSync(filename, maxLevels = 99) {
   return null;
 }
 
-function getPackageGM() {
-  const file = findFileUpwardsSync("package-gm.json");
-  if (file === null) {
-    throw new Error('❌ package-gm.json was not found')
-  }
-
+///@params {string | undefined}
+///@return {Object}
+function getPackageGM(packageFile = undefined) {
+  const file = packageFile
+    ?? findFileUpwardsSync("package-gm.json")
+      ?? (() => { throw new Error('❌ package-gm.json was not found') })();
+  
   return {
     file: file,
     data: JSON.parse(fs.readFileSync(file, "utf8")),
   }
 }
 
+///@params {Object} packageGM
+///@return {string}
 function getYYPPathFromPackageGM(packageGM) {
-  return path.join(path.dirname(packageGM.file), packageGM.data.main).replaceAll("\\", "/");
+  return sanitizePath(path.join(path.dirname(packageGM.file), packageGM.data.main));
 }
 
+///@params {Object} packageGM
 function backupPackageGM(packageGM) {
   console.log(`📝 Backup package-gm.json: ${packageGM.file}.old`);
   fs.copyFileSync(packageGM.file, `${packageGM.file}.old`);
 }
 
+///@params {Object} packageGM
 function savePackageGM(packageGM) {
   fs.writeFileSync(packageGM.file, JSON.stringify(packageGM.data, null, 2), "utf8");
 }
 
+///@params {number} value
+///@params {number} min
+///@params {number} max
+///@return P
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
 }
@@ -106,7 +131,9 @@ function runShellScript(scriptData) {
 const packageJson = JSON.parse(fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "package.json"), "utf-8"));
 
 const program = new Command()
-  .version(packageJson.version, '-v, --version, ', 'output the current version');
+  .version(packageJson.version, '-v, --version, ', 'output the current version')
+  .option('-P, --package <package>', 'package file')
+  .option('-E, --env <env>', 'environment');
 
 const config = program
   .command('config')
@@ -123,7 +150,6 @@ const configUnset = config
 const resource = program
   .command("resource")
   .description("Manage resources");
-
 
 program
   .command('init')
@@ -170,8 +196,9 @@ program
         dependencies: {},
         runtimes: {},
       };
-      
-      const filePath = path.join(projectPath, 'package-gm.json');
+
+      const[packageFile, envFile] = parseProgramOptions();
+      const filePath = path.join(projectPath, packageFile ?? 'package-gm.json');
       const dataString = JSON.stringify(data, null, 2);
 
       console.log(`About to write to ${filePath}:\n\n${dataString}\n\n`);
@@ -193,14 +220,16 @@ program
   .command('watch')
   .description('Watch modules dir and copy code to gamemaker project')
   .action(() => {
-    watch(path.normalize(path.join(process.cwd(), 'package-gm.json')))
+    const[packageFile, envFile] = parseProgramOptions();
+    watch(path.normalize(path.join(process.cwd(), packageFile ?? 'package-gm.json')))
   });
 
 program
   .command('sync')
   .description('Copy code from modules dir to gamemaker project')
   .action(() => {
-    sync(path.normalize(path.join(process.cwd(), 'package-gm.json')))
+    const[packageFile, envFile] = parseProgramOptions();
+    sync(path.normalize(path.join(process.cwd(), packageFile ?? 'package-gm.json')))
   });
 
 program
@@ -221,46 +250,31 @@ program
       fs.mkdirSync(modulesDir);
     }
 
-    const packageGM = getPackageGM()
+    const [packageFile, envFile] = parseProgramOptions();
+    const packageGM = getPackageGM(packageFile)
     const dependencies = packageGM.data.dependencies;
     Object.entries(dependencies).forEach(([key, dependency]) => {
       console.log(`\n📦️ Install ${key}\n===========${"=".repeat(key.length)}`)
-      const modulePath = path.join(modulesDir, key).replaceAll("\\", "/");
+      const modulePath = path.join(modulesDir, key);
       const cloneOptions = shallow ? `--depth 1 --branch ${dependency.revision}` : ''
-      const fetchOptions = shallow ? `origin "${dependency.revision}"` : `--all --tags`
-      const commit = `
-COMMIT="${dependencies.revision}"
-if git rev-parse --verify "${dependency.revision}^{commit}" >/dev/null 2>&1; then
-  COMMIT=\$(git rev-parse "${dependency.revision}^{commit}")
-elif git rev-parse --verify "origin/${dependency.revision}^{commit}" >/dev/null 2>&1; then
-  COMMIT=\$(git rev-parse "origin/${dependency.revision}^{commit}")
-else
-  echo "Cannot resolve revision ${dependency.revision}"
-  exit 1
-fi
-
-`
       if (fs.existsSync(modulePath)) {
         try {
-          execSync('git rev-parse --is-inside-work-tree', { shell: "bash", cwd: modulePath, stdio: 'ignore' });
+          execSync('git rev-parse --is-inside-work-tree', { cwd: modulePath, stdio: 'ignore' });
           console.log(`🌐 Syncing ${modulePath} to revision ${dependency.revision}`);
-          execSync(`git fetch ${fetchOptions}`, { shell: "bash", cwd: modulePath, stdio: 'inherit' });
-          execSync(`${commit}git checkout --detach --force \$COMMIT`, { shell: "bash", cwd: modulePath, stdio: 'inherit' });
-          execSync(`${commit}git reset --hard \$COMMIT`, { shell: "bash", cwd: modulePath, stdio: 'ignore' });
-          execSync(`git clean -fd`, { shell: "bash", cwd: modulePath, stdio: 'inherit' });
+          execSync('git reset --hard HEAD', { cwd: modulePath, stdio: 'inherit' });
+          execSync('git clean -fdx', { cwd: modulePath, stdio: 'inherit' });
+          execSync(`git checkout ${dependency.revision}`, { cwd: modulePath, stdio: 'inherit' });
         } catch (error) {
-          console.log(`🗑️  Removing ${modulePath} because it's not a git repository`);
+          console.log(`🗑️ Removing ${modulePath} because it's not a git repository`);
           fs.rmSync(modulePath, { recursive: true, force: true });
           console.log(`🔧 Initializing ${modulePath} to revision ${dependency.revision}`);
-          execSync(`git clone ${cloneOptions} ${dependency.remote} ${modulePath}`, { shell: "bash", stdio: 'inherit' });
-          execSync(`git fetch ${fetchOptions}`, { shell: "bash", cwd: modulePath, stdio: 'inherit' });
-          execSync(`${commit}git checkout --detach --force \$COMMIT`, { shell: "bash", cwd: modulePath, stdio: 'inherit' });
+          execSync(`git clone ${cloneOptions} ${dependency.remote} ${modulePath}`, { stdio: 'inherit' });
+          execSync(`git checkout ${dependency.revision}`, { cwd: modulePath, stdio: 'inherit' });
         }
       } else {
         console.log(`🔧 Initializing ${modulePath} to revision ${dependency.revision}`);
-        execSync(`git clone ${cloneOptions} ${dependency.remote} ${modulePath}`, { shell: "bash", stdio: 'inherit' });
-        execSync(`git fetch ${fetchOptions}`, { shell: "bash", cwd: modulePath, stdio: 'inherit' });
-        execSync(`${commit}git checkout --detach --force \$COMMIT`, { shell: "bash", cwd: modulePath, stdio: 'inherit' });
+        execSync(`git clone ${cloneOptions} ${dependency.remote} ${modulePath}`, { stdio: 'inherit' });
+        execSync(`git checkout ${dependency.revision}`, { cwd: modulePath, stdio: 'inherit' });
       }
     });
 
@@ -279,8 +293,9 @@ program
       return process.exit(1);
     }
 
-    const packageGM = getPackageGM()
-    const scriptData = packageGM.data.scripts[foo]
+    const[packageFile, envFile] = parseProgramOptions();
+    const packageGM = getPackageGM(packageFile);
+    const scriptData = packageGM.data.scripts[foo];
     if (typeof scriptData !== 'string') {
       console.log(`script ${foo} wasn't found`);
       console.log(`Exited with code 1`);
@@ -288,7 +303,7 @@ program
     }
 
     const shellScript = `#!/bin/bash
-    cd ${path.dirname(packageGM.file).replaceAll("\\", "/")}
+    cd ${sanitizePath(path.dirname(packageGM.file))}
   
     ${scriptData}
     `;
@@ -302,7 +317,7 @@ program
     function getFilesRecursively(dir, root) {
       let files = [];
       for (const entry of fs.readdirSync(dir)) {
-        const fullPath = path.join(dir, entry).replaceAll("\\", "/");
+        const fullPath = sanitizePath(path.join(dir, entry));
         if (fs.statSync(fullPath).isDirectory()) {
           files = files.concat(getFilesRecursively(fullPath, root));
         } else {
@@ -333,28 +348,24 @@ program
       return result;
     }
 
-    const envFile = findFileUpwardsSync(".gm-cli.env");
-    if (envFile === null) {
-      console.error('.gm-cli.env was not found')
-      return
-    }
-
-    const packageGM = getPackageGM()
-    if (packageGM === null) {
-      return null
-    }
-
-    const envPath = path.dirname(envFile).replaceAll("\\", "/");
+    const [packageFile, _envFile] = parseProgramOptions();
+    const packageGM = getPackageGM(packageFile);
+    /*
+    const envFile = _envFile
+      ?? findFileUpwardsSync(".gm-cli.env")
+        ?? (() => { throw new Error('❌ .gm-cli.env was not found') })();
+    const envPath = sanitizePath(path.dirname(envFile));
     const envMap = parseEnvFile(envFile);
-    const projectPath = path.dirname(path.join(path.dirname(packageGM.file), packageGM.data.main.replaceAll("\\", "/")));
+    */
+    const projectPath = path.dirname(path.join(path.dirname(packageGM.file), sanitizePath(packageGM.data.main)));
     const yypPath = getYYPPathFromPackageGM(packageGM)
     const yypOldPath = `${yypPath}.old`
     const yyp = fs.readFileSync(yypPath, "utf8");
     console.log(`📝 Backup yyp:`, yypOldPath);
     fs.copyFileSync(yypPath, yypOldPath);
 
-    const datafilesPath = path.join(projectPath, "datafiles").replaceAll("\\", "/")
-    const datafiles = getFilesRecursively(datafilesPath, datafilesPath)
+    const datafilesPath = sanitizePath(path.join(projectPath, "datafiles"));
+    const datafiles = getFilesRecursively(datafilesPath, datafilesPath);
     const replaced = yyp.replace(/"IncludedFiles"\s*:\s*\[(.*?)\]/s, `"IncludedFiles":[
     ${datafiles.join("\n    ")}
   ]`);
@@ -372,7 +383,8 @@ program
   .option('-c, --clean', 'make clean build')
   .option('-p, --projectool', 'Path to ProjectTool.exe')
   .action(function() {
-    const packageGM = getPackageGM()
+    const [packageFile, envFile] = parseProgramOptions();
+    const packageGM = getPackageGM(packageFile)
     const targetMap = new Map([ [ 'windows', 'win' ] ])
     const options = this.opts();
     const config = {
@@ -383,8 +395,9 @@ program
       launch: 'PackageZip',
       name: packageGM.data.name,
       zip: packageGM.data.name,
-      yyp: path.basename(packageGM.data.main).replaceAll("\\", "/"),
-      path: path.join(path.dirname(packageGM.file), path.dirname(packageGM.data.main)).replaceAll("\\", "/"),
+      yyp: sanitizePath(path.basename(packageGM.data.main)),
+      path: sanitizePath(path.join(path.dirname(packageGM.file), path.dirname(packageGM.data.main))),
+      env: envFile ?? '',
     };
 
     if (options.runtime !== undefined) {
@@ -423,19 +436,26 @@ program
         echo -e "\\\e[90m$timestamp\\\e[0m \\\e[31mERROR\\\e[0m  \\\e[35m[gm-cli::make]\\\e[0m $1"
       }
       
-      gm_cli_env_path=""
-      dir=$(realpath "$PWD")
-      while [ "$dir" != "/" ]; do
-        if [ -f "$dir/.gm-cli.env" ]; then
-          gm_cli_env_path="$dir/.gm-cli.env"
-          log_info "Load configuration '$gm_cli_env_path'"
-          set -a
-          . "$gm_cli_env_path"
-          set +a
-          break
-        fi
-        dir=$(dirname "$dir")
-      done
+      gm_cli_env_path="${config.env}"
+      if [ -z "$gm_cli_env_path" ]; then
+        dir=$(realpath "$PWD")
+        while [ "$dir" != "/" ]; do
+          if [ -f "$dir/.gm-cli.env" ]; then
+            gm_cli_env_path="$dir/.gm-cli.env"
+            log_info "Load configuration '$gm_cli_env_path'"
+            set -a
+            . "$gm_cli_env_path"
+            set +a
+            break
+          fi
+          dir=$(dirname "$dir")
+        done
+      else
+        log_info "Load configuration '$gm_cli_env_path'"
+        set -a
+        . "$gm_cli_env_path"
+        set +a
+      fi
 
       runtime_path=$GM_CLI_RUNTIME_PATH
       if [ -z "$runtime_path" ]; then
@@ -573,7 +593,8 @@ program
         GM_CLI_VS_DEV_CMD_PATH: path.normalize(propertyVsDevCmdPath),
       };
       
-      const filePath = path.join(projectPath, '.gm-cli.env');
+      const [packageFile, envFile] = parseProgramOptions();
+      const filePath = envFile ?? path.join(projectPath, '.gm-cli.env');
       const dataString = Object.entries(data)
         .map(([key, value]) => `${key}="${value}"`)
         .join("\n");
@@ -600,7 +621,8 @@ program
   .option('-n, --name <name>', 'name of binary')
   .option('-r, --report <report>', 'name of CSV report file')
   .action((options) => {
-    const packageGM = getPackageGM()
+    const [packageFile, envFile] = parseProgramOptions();
+    const packageGM = getPackageGM(packageFile);
     const interval = clamp((Number.isNaN(Number(options.interval)) ? 15.0 : Number(options.interval)), 1.0 / 60.0, 999.0)
     const name = options.name === undefined ? packageGM.data.name : options.name 
     const report = options.report === undefined ? '' : options.report
@@ -631,7 +653,8 @@ program
   .option('-b, --build <build>', 'Path to executable')
   .option('-m, --monitorRAM', 'Monitor RAM while testing')
   .action((options) => {
-    const packageGM = getPackageGM()
+    const [packageFile, envFile] = parseProgramOptions();
+    const packageGM = getPackageGM(packageFile);
 
     const shellMonitorRAMScript = options.monitorRAM === undefined ? `` : `
     set -m
@@ -641,7 +664,7 @@ program
     `;
 
     const shellBuildScript = options.build !== undefined ? `
-    cd ${path.dirname(options.build).replaceAll("\\", "/")}
+    cd ${sanitizePath(path.dirname(options.build))}
     build_name="\$\{PWD##*/\}"
     
     EXE_FILE="${path.basename(options.build)}"
@@ -679,7 +702,7 @@ program
     `;
 
     const shellScript = `#!/bin/bash
-    cd ${path.dirname(packageGM.file).replaceAll("\\", "/")}
+    cd ${sanitizePath(path.dirname(packageGM.file))}
 
     ${shellBuildScript}
 
@@ -712,7 +735,8 @@ configSet
       console.log("🔨  Set dependency", name, "as", packageGM.data.dependencies[name])
     };
   
-    const packageGM = getPackageGM()
+    const [packageFile, envFile] = parseProgramOptions();
+    const packageGM = getPackageGM(packageFile);
 
     backupPackageGM(packageGM)
     resolve()
@@ -728,7 +752,8 @@ configSet
       console.log("🔨  Set script", name, "as", packageGM.data.scripts[name])
     }
 
-    const packageGM = getPackageGM()
+    const [packageFile, envFile] = parseProgramOptions();
+    const packageGM = getPackageGM(packageFile);
 
     backupPackageGM(packageGM)
     resolve()
@@ -744,7 +769,8 @@ configSet
       console.log("🔨  Set runtime", name, "as", supported === "false" ? "false" : "true")
     }
 
-    const packageGM = getPackageGM()
+    const [packageFile, envFile] = parseProgramOptions();
+    const packageGM = getPackageGM(packageFile);
 
     backupPackageGM(packageGM)
     resolve()
@@ -762,7 +788,8 @@ configUnset
       }
     }
 
-    const packageGM = getPackageGM()
+    const [packageFile, envFile] = parseProgramOptions();
+    const packageGM = getPackageGM(packageFile);
 
     backupPackageGM(packageGM)
     resolve()
@@ -780,7 +807,8 @@ configUnset
       }
     }
 
-    const packageGM = getPackageGM()
+    const [packageFile, envFile] = parseProgramOptions();
+    const packageGM = getPackageGM(packageFile);
 
     backupPackageGM(packageGM)
     resolve()
@@ -798,7 +826,8 @@ configUnset
       }
     }
 
-    const packageGM = getPackageGM()
+    const [packageFile, envFile] = parseProgramOptions();
+    const packageGM = getPackageGM(packageFile);
 
     backupPackageGM(packageGM)
     resolve()
@@ -812,7 +841,8 @@ resource
   .requiredOption("-n, --name <name>", "Resource name")
   .option("-f, --folder <folder>", "Resource folder")
   .action((options) => {
-    const packageGM = getPackageGM()
+    const [packageFile, envFile] = parseProgramOptions();
+    const packageGM = getPackageGM(packageFile);
     const yypPath = getYYPPathFromPackageGM(packageGM)
     const folderOption = options.folder !== undefined ? `folder=${options.folder}` : ``
     const shellScript = `yy-gm-cli resourcetool eval "resource create type=${options.type} name=${options.name} ${folderOption}" ${yypPath}`
@@ -825,7 +855,8 @@ resource
   .requiredOption("-e, --expr <expr>", "Resource expression")
   .requiredOption("-v, --value <value>", "New value")
   .action((options) => {
-    const packageGM = getPackageGM()
+    const [packageFile, envFile] = parseProgramOptions();
+    const packageGM = getPackageGM(packageFile);
     const yypPath = getYYPPathFromPackageGM(packageGM)
     const shellScript = `yy-gm-cli resourcetool eval "resource set expr=${options.expr} value=${options.value}" ${yypPath}`
     runShellScript(shellScript)
@@ -833,10 +864,11 @@ resource
 
 resource
   .command("get")
-  .description(" a resource")
+  .description("Get a resource")
   .requiredOption("-e, --expr <expr>", "Resource expression")
   .action((options) => {
-    const packageGM = getPackageGM()
+    const [packageFile, envFile] = parseProgramOptions();
+    const packageGM = getPackageGM(packageFile);
     const yypPath = getYYPPathFromPackageGM(packageGM)
     const shellScript = `yy-gm-cli resourcetool eval "resource info expr=${options.expr}" ${yypPath}`
     runShellScript(shellScript)
@@ -848,7 +880,8 @@ resource
   .requiredOption("-n, --name <name>", "Resource name")
   .option("--type <type>", "Resource type")
   .action((options) => {
-    const packageGM = getPackageGM()
+    const [packageFile, envFile] = parseProgramOptions();
+    const packageGM = getPackageGM(packageFile)
     const yypPath = getYYPPathFromPackageGM(packageGM)
     const typeOptions = options.type !== undefined ? `type=${options.type}` : ``
     const shellScript = `yy-gm-cli resourcetool eval "resource delete name=${options.name} ${typeOptions}" ${yypPath}`
@@ -860,7 +893,8 @@ resource
   .description("List resources")
   .option("--type <type>", "Resource type")
   .action((options) => {
-    const packageGM = getPackageGM()
+    const [packageFile, envFile] = parseProgramOptions();
+    const packageGM = getPackageGM(packageFile)
     const yypPath = getYYPPathFromPackageGM(packageGM)
     const typeOptions = options.type !== undefined ? `type=${options.type}` : ``
     const shellScript = `yy-gm-cli resourcetool eval "resource list ${typeOptions}" ${yypPath}`
