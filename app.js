@@ -286,7 +286,8 @@ program
   .command('run')
   .description('Run the script named <foo>')
   .argument('<foo>', 'script name')
-  .action((foo) => {
+  .argument('[args...]', 'arguments to pass to the script')
+  .action((foo, args) => {
     if (typeof foo !== 'string') {
       console.log(`missing argument`);
       console.log(`Exited with code 1`);
@@ -302,10 +303,12 @@ program
       return process.exit(1);
     }
 
+    const scriptArgs = args.join(' ');
+
     const shellScript = `#!/bin/bash
     cd ${sanitizePath(path.dirname(packageGM.file))}
   
-    ${scriptData}
+    ${scriptData} ${scriptArgs}
     `;
     runShellScript(shellScript)
   });
