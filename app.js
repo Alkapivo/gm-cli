@@ -225,26 +225,42 @@ program
     const dependencies = packageGM.data.dependencies;
     Object.entries(dependencies).forEach(([key, dependency]) => {
       console.log(`\n📦️ Install ${key}\n===========${"=".repeat(key.length)}`)
-      const modulePath = path.join(modulesDir, key);
+      const modulePath = path.join(modulesDir, key).replaceAll("\\", "/");
       const cloneOptions = shallow ? `--depth 1 --branch ${dependency.revision}` : ''
+      const fetchOptions = shallow ? `origin "${dependency.revision}"` : `--all --tags`
+      const commit = `
+COMMIT="${dependencies.revision}"
+if git rev-parse --verify "${dependency.revision}^{commit}" >/dev/null 2>&1; then
+  COMMIT=\$(git rev-parse "${dependency.revision}^{commit}")
+elif git rev-parse --verify "origin/${dependency.revision}^{commit}" >/dev/null 2>&1; then
+  COMMIT=\$(git rev-parse "origin/${dependency.revision}^{commit}")
+else
+  echo "Cannot resolve revision ${dependency.revision}"
+  exit 1
+fi
+
+`
       if (fs.existsSync(modulePath)) {
         try {
-          execSync('git rev-parse --is-inside-work-tree', { cwd: modulePath, stdio: 'ignore' });
+          execSync('git rev-parse --is-inside-work-tree', { shell: "bash", cwd: modulePath, stdio: 'ignore' });
           console.log(`🌐 Syncing ${modulePath} to revision ${dependency.revision}`);
-          execSync('git reset --hard HEAD', { cwd: modulePath, stdio: 'inherit' });
-          execSync('git clean -fdx', { cwd: modulePath, stdio: 'inherit' });
-          execSync(`git checkout ${dependency.revision}`, { cwd: modulePath, stdio: 'inherit' });
+          execSync(`git fetch ${fetchOptions}`, { shell: "bash", cwd: modulePath, stdio: 'inherit' });
+          execSync(`${commit}git checkout --detach --force \$COMMIT`, { shell: "bash", cwd: modulePath, stdio: 'inherit' });
+          execSync(`${commit}git reset --hard \$COMMIT`, { shell: "bash", cwd: modulePath, stdio: 'ignore' });
+          execSync(`git clean -fd`, { shell: "bash", cwd: modulePath, stdio: 'inherit' });
         } catch (error) {
-          console.log(`🗑️ Removing ${modulePath} because it's not a git repository`);
+          console.log(`🗑️  Removing ${modulePath} because it's not a git repository`);
           fs.rmSync(modulePath, { recursive: true, force: true });
           console.log(`🔧 Initializing ${modulePath} to revision ${dependency.revision}`);
-          execSync(`git clone ${cloneOptions} ${dependency.remote} ${modulePath}`, { stdio: 'inherit' });
-          execSync(`git checkout ${dependency.revision}`, { cwd: modulePath, stdio: 'inherit' });
+          execSync(`git clone ${cloneOptions} ${dependency.remote} ${modulePath}`, { shell: "bash", stdio: 'inherit' });
+          execSync(`git fetch ${fetchOptions}`, { shell: "bash", cwd: modulePath, stdio: 'inherit' });
+          execSync(`${commit}git checkout --detach --force \$COMMIT`, { shell: "bash", cwd: modulePath, stdio: 'inherit' });
         }
       } else {
         console.log(`🔧 Initializing ${modulePath} to revision ${dependency.revision}`);
-        execSync(`git clone ${cloneOptions} ${dependency.remote} ${modulePath}`, { stdio: 'inherit' });
-        execSync(`git checkout ${dependency.revision}`, { cwd: modulePath, stdio: 'inherit' });
+        execSync(`git clone ${cloneOptions} ${dependency.remote} ${modulePath}`, { shell: "bash", stdio: 'inherit' });
+        execSync(`git fetch ${fetchOptions}`, { shell: "bash", cwd: modulePath, stdio: 'inherit' });
+        execSync(`${commit}git checkout --detach --force \$COMMIT`, { shell: "bash", cwd: modulePath, stdio: 'inherit' });
       }
     });
 
