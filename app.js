@@ -257,24 +257,43 @@ program
       console.log(`\n📦️ Install ${key}\n===========${"=".repeat(key.length)}`)
       const modulePath = path.join(modulesDir, key);
       const cloneOptions = shallow ? `--depth 1 --branch ${dependency.revision}` : ''
+      const checkoutShellScript = `
+        git fetch --prune origin
+
+        if git show-ref --verify --quiet "refs/remotes/origin/${dependency.revision}"; then
+          # Branch
+          REVISION=\$(git rev-parse "origin/${dependency.revision}^{commit}")
+        elif git rev-parse --verify --quiet "${dependency.revision}^{commit}"; then
+          # Tag or SHA
+          REVISION=\$(git rev-parse "${dependency.revision}^{commit}")
+        else
+          echo "ERROR: Cannot resolve GIT_REVISION='${dependency.revision}'"
+          exit 1
+        fi
+
+        echo "GIT_REVISION=${dependency.revision}"
+        echo "Resolved revision=\${REVISION}"
+        echo -e "🌐 Syncing ${modulePath} to revision \${REVISION}"
+
+        git checkout --detach --force "\${REVISION}"
+        git reset --hard "\${REVISION}"
+        git clean -fdx
+
+        git status --porcelain`
       if (fs.existsSync(modulePath)) {
         try {
-          execSync('git rev-parse --is-inside-work-tree', { cwd: modulePath, stdio: 'ignore' });
-          console.log(`🌐 Syncing ${modulePath} to revision ${dependency.revision}`);
-          execSync('git reset --hard HEAD', { cwd: modulePath, stdio: 'inherit' });
-          execSync('git clean -fdx', { cwd: modulePath, stdio: 'inherit' });
-          execSync(`git checkout ${dependency.revision}`, { cwd: modulePath, stdio: 'inherit' });
+          execSync(checkoutShellScript, { cwd: modulePath, stdio: 'inherit' });
         } catch (error) {
           console.log(`🗑️ Removing ${modulePath} because it's not a git repository`);
           fs.rmSync(modulePath, { recursive: true, force: true });
           console.log(`🔧 Initializing ${modulePath} to revision ${dependency.revision}`);
           execSync(`git clone ${cloneOptions} ${dependency.remote} ${modulePath}`, { stdio: 'inherit' });
-          execSync(`git checkout ${dependency.revision}`, { cwd: modulePath, stdio: 'inherit' });
+          execSync(checkoutShellScript, { cwd: modulePath, stdio: 'inherit' });
         }
       } else {
         console.log(`🔧 Initializing ${modulePath} to revision ${dependency.revision}`);
         execSync(`git clone ${cloneOptions} ${dependency.remote} ${modulePath}`, { stdio: 'inherit' });
-        execSync(`git checkout ${dependency.revision}`, { cwd: modulePath, stdio: 'inherit' });
+        execSync(checkoutShellScript, { cwd: modulePath, stdio: 'inherit' });
       }
     });
 
